@@ -54,7 +54,7 @@ struct Options {
       --no-external          Drop the symbols of other modules (the SDK, dependencies). Default: they are leaf nodes.
       --no-bodies            Do not read the bodies of the functions. The page then has no trace.
       --index-store <path>   Index store. Default: found under .build or Xcode DerivedData.
-      --libindexstore <path> libIndexStore.dylib. Default: from the toolchain of `xcrun --find swift`.
+      --libindexstore <path> libIndexStore.dylib or .so. Default: from the toolchain of the swift in use.
     """
 
   init(_ arguments: [String]) throws {
@@ -162,12 +162,17 @@ func findIndexStores(project: String) -> [String] {
   return candidates.filter(isStore).sorted { date($0) > date($1) }
 }
 
+/// Runs a tool of the Swift toolchain: through xcrun where Xcode chooses the toolchain, and from the PATH elsewhere.
+func runSwift(_ arguments: [String]) -> String? {
+  FileManager.default.fileExists(atPath: "/usr/bin/xcrun") ? run("/usr/bin/xcrun", ["swift"] + arguments) : run("/usr/bin/env", ["swift"] + arguments)
+}
+
 func findLibIndexStore() -> String? {
-  guard let swift = run("/usr/bin/xcrun", ["--find", "swift"]) ?? run("/usr/bin/which", ["swift"]) else { return nil }
+  guard let swift = run("/usr/bin/xcrun", ["--find", "swift"]) ?? run("/usr/bin/env", ["which", "swift"]) else { return nil }
   let lib = URL(fileURLWithPath: swift).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
     .appendingPathComponent("lib")
   for name in ["libIndexStore.dylib", "libIndexStore.so"] {
-    let path = lib.appendingPathComponent(name).path
+    let path = lib.appendingPathComponent(name).path.trimmingCharacters(in: .whitespacesAndNewlines)
     if FileManager.default.fileExists(atPath: path) { return path }
   }
   return nil

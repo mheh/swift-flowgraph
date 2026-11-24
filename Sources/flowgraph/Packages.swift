@@ -40,7 +40,7 @@ func memberships(of packages: [PackageInfo]) -> [String: [String]] {
 /// What `swift package describe` says about the package at one path, or nil when the path holds no package.
 func describePackage(at path: String, prefix: String) -> PackageInfo? {
   guard FileManager.default.fileExists(atPath: path + "/Package.swift"),
-    let text = run("/usr/bin/xcrun", ["swift", "package", "--package-path", path, "describe", "--type", "json"]),
+    let text = runSwift(["package", "--package-path", path, "describe", "--type", "json"]),
     let start = text.firstIndex(of: "{"),
     let top = try? JSONSerialization.jsonObject(with: Data(text[start...].utf8)) as? [String: Any]
   else { return nil }

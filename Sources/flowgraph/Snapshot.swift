@@ -134,7 +134,7 @@ func checkOut(_ ref: String, for options: inout Options) throws {
     return p.terminationStatus
   }
   func quoted(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-  guard let top = run("/usr/bin/git", ["-C", options.project, "rev-parse", "--show-toplevel"])?.trimmingCharacters(in: .whitespacesAndNewlines), !top.isEmpty else {
+  guard let top = run("/usr/bin/env", ["git"] + ["-C", options.project, "rev-parse", "--show-toplevel"])?.trimmingCharacters(in: .whitespacesAndNewlines), !top.isEmpty else {
     throw Failure("--ref needs a git repository, and \(options.project) is not in one")
   }
   let top2 = URL(fileURLWithPath: top).resolvingSymlinksInPath().path
@@ -157,7 +157,7 @@ func checkOut(_ ref: String, for options: inout Options) throws {
 
 /// Where the snapshot came from: the name of the project, and the commit when the project is a git repository.
 func projectInfo(_ options: Options, indexed: Date?, stale: Int) -> [String: Any] {
-  func git(_ arguments: String...) -> String? { run("/usr/bin/git", ["-C", options.project] + arguments) }
+  func git(_ arguments: String...) -> String? { run("/usr/bin/env", ["git"] + ["-C", options.project] + arguments) }
   var info: [String: Any] = [
     "name": options.title ?? URL(fileURLWithPath: options.project).lastPathComponent,
     "created": ISO8601DateFormatter().string(from: Date()),

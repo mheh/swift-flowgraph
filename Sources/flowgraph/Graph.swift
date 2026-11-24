@@ -250,6 +250,8 @@ struct Graph {
         }
       }
       nodes[i].module = module
+      // On Linux the index names the parts of the standard library: Swift.String, Swift.Collection.Array.
+      if module.hasPrefix("Swift.") { module = "Swift" }
       if module == "Swift" || module.hasPrefix("_") { nodes[i].system = true }
     }
   }

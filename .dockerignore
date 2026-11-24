@@ -1,0 +1,8 @@
+.build
+.git
+dist
+Tests
+*.html
+!Sources/flowgraph/web/*.html
+*.json
+!Package.resolved

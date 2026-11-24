@@ -1,0 +1,70 @@
+name: image
+
+on:
+  push:
+    branches: [master]
+
+# cache prune deletes entries through the API. needs the actions scope.
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SWIFT_VERSION: '6.4'
+      IMAGE: mhehmsoth/swift-flowgraph
+      SWIFT_IMAGE: swift:6.4-noble
+      CACHE_FAMILY: spm-swift-6.4-
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Restore the build cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .build
+          key: ${{ env.CACHE_FAMILY }}${{ github.run_id }}
+          restore-keys: |
+            ${{ env.CACHE_FAMILY }}
+
+      - name: Build the release binary
+        run: docker run --rm -v "$PWD:/workspace" -w /workspace "$SWIFT_IMAGE" Scripts/build-linux.sh dist
+
+      - name: Reclaim the ownership of the build tree
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" .build dist
+          du -sh .build
+
+      - name: Save the build cache
+        uses: actions/cache/save@v6
+        with:
+          path: .build
+          key: ${{ env.CACHE_FAMILY }}${{ github.run_id }}
+
+      - name: Delete the older entries of the family
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          KEEP: ${{ env.CACHE_FAMILY }}${{ github.run_id }}
+        run: |
+          gh cache list --key "$CACHE_FAMILY" --limit 100 --json id,key \
+            --jq '.[] | select(.key != env.KEEP) | .id' | xargs -r -n1 gh cache delete
+
+      - name: Package the image
+        run: docker build -f Dockerfile.ci --build-arg "SWIFT_IMAGE=$SWIFT_IMAGE" -t flowgraph:test dist
+
+      - name: Test on the fixture package
+        run: Tests/fixture/check.sh flowgraph:test
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push
+        run: |
+          docker tag flowgraph:test "$IMAGE:swift-$SWIFT_VERSION"
+          docker push "$IMAGE:swift-$SWIFT_VERSION"
