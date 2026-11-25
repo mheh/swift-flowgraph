@@ -131,8 +131,8 @@ const FGDiff = (() => {
       else if (signature.has(n.id)) { states.set(n.id, 'signature'); if (changed) bodyToo.add(n.id); }
       else if (changed) states.set(n.id, 'body');
     }
-    // What uses a changed symbol, at any distance, is affected.
-    let frontier = [...states.keys()];
+    // What uses a changed symbol, at any distance, is affected. Of two projects that is nearly each symbol, so none is.
+    let frontier = across ? [] : [...states.keys()];
     while (frontier.length) {
       const next = [];
       for (const id of frontier) for (const e of H.inc[id]) {

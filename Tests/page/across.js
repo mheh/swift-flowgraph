@@ -20,6 +20,8 @@
     expect('the function that lost a call differs, and no other pair does', D.counts.body === 1 && D.N[from].diff === 'body');
     FG.activate('diff');
     await wait(200);
+    expect('the view counts the functions of each module of the base', document.querySelectorAll('.dif .port [data-module]').length === new Set(D.base.N.filter(n => !n.ext && /function|method|constructor/i.test(n.kind)).map(n => n.module)).size);
+    expect('no symbol is affected across two projects', D.counts.affected === 0);
     expect('the view says that the two are two projects', /two projects/.test(document.querySelector('.dif').textContent));
     console.log(`TIME ${D.named.size} of ${total} symbols have a pair`);
     console.log('PASS across');

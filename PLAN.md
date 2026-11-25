@@ -191,8 +191,10 @@ Each part ends with a headless test of the page.
 ### Done: the match by name (2026-11-25)
 
 - [x] `across.js` pairs the symbols of two projects by name and class, and `diff.js` uses it when the two snapshots share less than half of their identities. No new view: the diff mode of the page shows it, with other labels.
-- Measured on the test pair, the port as the head: 6,850 pairs by name. Of the callables of the base, 10,129 are only in the base, most of them in the client and the two renderers, which the port does not have. In the game binary it is 518 of 3,257.
-- Of the 5,291 pairs of callables, 1,535 do not call the same functions, 174 are the same, and 3,582 are affected, which says little here: almost every function reaches a symbol that only the port has.
+- Measured on the test pair, the port as the head: 8,591 pairs by name. Of the callables of the base, 7,137 are only in the base, most of them in the client and the two renderers, which the port does not have. In the game binary it is 536 of 3,247.
+- One module of the port can hold what several modules of the base have. With the rule that each module of the head goes with one module of the base, it was 6,850 pairs. Each symbol now takes the module of the base that holds the most pairs of its own module.
+- Of the 6,609 pairs of callables, 1,626 do not call the same functions, and 4,983 do. No symbol is affected across two projects: with the rule of one project it was 3,582 of them, because almost every function reaches a symbol that only the port has.
 - With reads and writes in the comparison only 375 pairs were the same, so they are left out.
 - Two commits of the C test project, both built the same way: 109 added, 0 removed, 42 bodies changed, for a change of 15 files. With one side built with another define it was 340 bodies.
-- Not done: a pair that the port renamed, a summary for each module or file, and a state for affected that has a meaning across two projects.
+- `Changes` has one row for each module of the base, with its functions that have a pair, that call the same, and that the port does not have.
+- Not done: a pair that the port renamed, and a summary for each file.

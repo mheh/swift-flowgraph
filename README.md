@@ -181,10 +181,11 @@ Build both sides the same way: the same platform, the same kind of build, and th
 When the two snapshots share less than half of their identities, the page takes them for two projects, and says so in `Changes`. This is how a C project is compared with its port to Swift: make the port the head and the C project the base.
 
 - A symbol of one is matched with the symbol of the other that has its name and is the same kind of thing: a function, a type, or data. `Type.name` is tried first, then the last part of the name for a function.
-- When several symbols have the name, the modules decide: each module of the head goes with the module of the base that most of its pairs are in.
+- When several symbols have the name, the modules decide: a symbol of the head takes the one in the module of the base that holds the most pairs of its own module.
 - A function that several binaries of the base compile counts once.
 - `only in the base` is what the port does not have yet. `only in the head` is what the port added.
 - `calls differ` is a pair that does not call the same functions, of the functions that have a pair. Reads and writes do not count, because each language reaches its data in its own way.
+- `Changes` starts with one row for each module of the base: how many of its functions have a pair, how many of those call the same functions, and how many the port does not have. No symbol is `affected`, because nearly each function reaches something that only one side has.
 - The trace of a pair shows both bodies, the base as removed steps and the head as added steps. No text is the same across two languages.
 
 The match is by name alone, so a function that the port renamed is in both lists, once as missing and once as added.

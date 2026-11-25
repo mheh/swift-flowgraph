@@ -19,23 +19,26 @@ const FGAcross = (() => {
     return map;
   }
 
-  // For each module of the head, the module of the base that most of its pairs are in.
+  // For each module of the head, how many of its pairs are in each module of the base.
   function modulesOf(pairs) {
     const counts = new Map();
     for (const [h, b] of pairs) {
       const of = counts.get(h.module) || counts.set(h.module, new Map()).get(h.module);
       of.set(b.module, (of.get(b.module) || 0) + 1);
     }
-    return new Map([...counts].map(([module, of]) => [module, [...of].sort((x, y) => y[1] - x[1])[0][0]]));
+    return counts;
   }
 
-  // The one pair of a group of symbols that have the same key. With several on a side, the modules must agree.
+  // The one pair of a group of symbols that have the same key. With several on a side, each symbol of the head takes the one
+  // of the base whose module holds the most pairs of its own module. One module of a port can hold what several modules of the base have.
   function pairIn(heads, bases, modules) {
     if (heads.length === 1 && bases.length === 1) return [heads[0], bases[0]];
+    const weight = (h, b) => modules.get(h.module)?.get(b.module) || 0;
+    const best = h => bases.reduce((top, b) => weight(h, b) > weight(h, top) ? b : top);
     for (const h of heads) {
-      const module = modules.get(h.module);
-      const mine = bases.filter(b => b.module === module), rivals = heads.filter(x => modules.get(x.module) === module);
-      if (module != null && mine.length === 1 && rivals.length === 1) return [h, mine[0]];
+      const b = best(h);
+      const alone = bases.filter(x => x.module === b.module).length === 1 && heads.filter(x => best(x).module === b.module).length === 1;
+      if (weight(h, b) > 0 && alone) return [h, b];
     }
     return null;
   }
@@ -72,5 +75,5 @@ const FGAcross = (() => {
     return { pairs: out, copies };
   }
 
-  return { pairs };
+  return { pairs, classOf };
 })();

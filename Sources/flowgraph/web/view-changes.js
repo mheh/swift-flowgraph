@@ -59,6 +59,35 @@
     FG.status(`${total} symbols in the list`);
   }
 
+  // Of two projects: how much of each module of the base the head has. A function that several binaries compile counts in each.
+  function portRows(D) {
+    const rows = new Map();
+    for (const n of D.base.N) {
+      if (n.ext || FGAcross.classOf(n.kind) !== 'callable') continue;
+      const row = rows.get(n.module) || rows.set(n.module, { module: n.module, all: 0, same: 0, body: 0, removed: 0, partners: new Map() }).get(n.module);
+      const pair = D.N[D.mid.get(n.id)];
+      row.all++;
+      row[pair.diff === 'removed' ? 'removed' : pair.diff === 'body' ? 'body' : 'same']++;
+      if (pair.diff !== 'removed') row.partners.set(pair.module, (row.partners.get(pair.module) || 0) + 1);
+    }
+    return [...rows.values()].sort((x, y) => y.all - x.all);
+  }
+
+  function portSummary(D) {
+    const rows = portRows(D), sum = key => rows.reduce((total, r) => total + r[key], 0);
+    const share = (count, all) => all ? Math.round(100 * count / all) + '%' : '';
+    const cell = (state, count) => count ? `<span class="dst d-${state}">${count}</span>` : '<span class="dim">0</span>';
+    const line = r => {
+      const partner = [...r.partners].sort((x, y) => y[1] - x[1])[0];
+      return `<div class="dh dr" data-module="${esc(r.module)}"><span><b>${esc(r.module)}</b></span><span class="dim">${partner ? esc(partner[0]) : 'none'}</span>`
+        + `<span>${r.all}</span><span>${r.same} <span class="dim">${share(r.same, r.all)}</span></span><span>${cell('body', r.body)}</span><span>${cell('removed', r.removed)}</span></div>`;
+    };
+    return `<h2>The functions of the base · ${sum('all') - sum('removed')} of ${sum('all')} have a pair in the head</h2>`
+      + '<div class="dt port"><div class="dh"><span>module of the base</span><span>most pairs are in</span><span>functions</span>'
+      + `<span>same calls</span><span>${D.labels.body}</span><span>${D.labels.removed}</span></div>${rows.map(line).join('')}</div>`
+      + '<p class="dim">A click on a module puts its name in the filter of the list.</p>';
+  }
+
   // What the change does to each entry point.
   function overview(D) {
     const H = D.head, B = D.base, entries = H.entries.slice(0, 200), marks = state.marks.length > 0;
@@ -93,7 +122,7 @@
       return;
     }
     renderHead(D);
-    detail.innerHTML = overview(D);
+    detail.innerHTML = (D.across ? portSummary(D) : '') + overview(D);
     renderList(D);
   }
 
@@ -114,6 +143,7 @@
         .dif .dr:hover { background:#232733; } .dif .dr.on { background:#2d3a55; }
         .dif .dr .nm { overflow:hidden; text-overflow:ellipsis; flex:1; } .dif .dr i { color:var(--dim); font-size:11px; }
         .dif .dt .dh { display:grid; grid-template-columns:minmax(200px, 2fr) 150px minmax(200px, 2fr) 170px; gap:10px; padding:3px 4px; border-bottom:1px solid #20242c; align-items:baseline; }
+        .dif .dt.port .dh { grid-template-columns:minmax(160px, 2fr) minmax(140px, 2fr) 80px 110px 100px 120px; }
         .dif .dt .dh:first-child { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
         .dif .none { padding:40px; color:var(--dim); text-align:center; }`;
       document.head.appendChild(style);
@@ -121,8 +151,9 @@
       box.innerHTML = `<div class="dif"><div class="hd"></div><div class="bd"><div class="li"></div><div class="de"></div></div></div>`;
       headBox = box.querySelector('.hd'); listBox = box.querySelector('.li'); detail = box.querySelector('.de');
       box.onclick = ev => {
-        const row = ev.target.closest('.dr');
+        const row = ev.target.closest('.dr'), module = ev.target.closest('[data-module]');
         if ('choose' in ev.target.dataset) FG.chooseBase();
+        else if (module) { filter = module.dataset.module; render(); }
         else if (row) {
           const id = +row.dataset.id;
           // A symbol that one side does not have needs both sides to be seen.
