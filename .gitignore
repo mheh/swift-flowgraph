@@ -1,4 +1,5 @@
 .build/
+.swiftpm/
 dist/
 *.html
 !Sources/flowgraph/web/*.html
