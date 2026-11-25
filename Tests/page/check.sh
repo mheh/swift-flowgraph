@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs each test of this directory on the page, in headless Chrome.
 # Usage: check.sh <flowgraph> <head.json> <base.json> [test ...]
-# The two snapshots are of one project at two commits. It needs node, python3, and Google Chrome.
+# The two snapshots are of one project at two commits. The test speed is not in the default set: it prints times for head.json. It needs node, python3, and Google Chrome.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 flowgraph=$1; head=$2; base=$3; shift 3
@@ -21,6 +21,8 @@ failed=0
 for name in "$@"; do
   cp "$here/$name.js" "$site/test-$name.js"
   sed "s|</html>|<script src=\"test-$name.js\"></script></html>|" "$site/index.html" > "$site/test-$name.html"
-  node "$here/cdp.mjs" "http://127.0.0.1:$port/test-$name.html" '^(PASS|FAIL|PAGEERR)' 60 | grep -E '^(PASS|FAIL|PAGEERR|no line)' | grep -v '^PASS' && failed=1 || echo "ok: $name"
+  out=$(node "$here/cdp.mjs" "http://127.0.0.1:$port/test-$name.html" '^(PASS|FAIL|PAGEERR)' 120 || true)
+  echo "$out" | sed -n 's/^TIME /  /p'
+  if echo "$out" | grep -q '^PASS'; then echo "ok: $name"; else echo "$out" | grep -E '^(FAIL|PAGEERR|no line)' || echo "FAIL $name: no result"; failed=1; fi
 done
 exit $failed

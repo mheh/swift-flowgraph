@@ -150,7 +150,22 @@ So the program in the page needs no Swift parser and no package description. Its
       With no root, the graph view offers the entry points. The toolbar has three groups: where the views start, what they hold, and the snapshots.
 - [x] **4. `core.js` in parts**: `model.js` reads a snapshot, `core.js` holds the state and the comparison, `toolbar.js` and `panel.js` hold the controls. The storage is `store.js`.
       `Tests/page/controls.js` tests the controls, and it passed before and after the split.
-- [ ] **5. Speed, measured** on a Swift and on a C snapshot: load, first render, scroll of the table, change of the root.
+- [x] **5. Speed, measured** on a Swift and on a C snapshot: load, first render, scroll of the table, change of the root.
+      Measured in headless Chrome with `Tests/page/check.sh <flowgraph> <head.json> <base.json> speed`, on a Swift snapshot of 54,000 symbols and 311,000 edges (25 MB) and a C snapshot of 40,000 symbols and 219,000 edges (8 MB):
+
+      | Step | Swift | C |
+      |---|---|---|
+      | Read the file and parse it | 0.17 s | 0.07 s |
+      | Make the model | 0.07 s | 0.05 s |
+      | Choose an entry point, to the drawn graph | 0.27 s (92 symbols reached) | 0.52 s (9,766 reached) |
+      | Change the root | 0.39 s | 0.72 s |
+      | Select a symbol | 0.03 s | 0.05 s |
+      | Table, first render | 0.05 s | 0.03 s |
+      | Table, one scroll step | 17 ms | 17 ms (worst 30 ms) |
+      | Trace | 0.02 s | 0.02 s |
+      | Choose a base, to the drawn diff | 0.39 s | 0.22 s |
+
+      No step needs a change. The scope of 9,766 symbols takes 0.03 s; the rest of a root change is the graph library, which draws 300 symbols at most.
 - [ ] **6. The exporter in the page** for a C or C++ index store, with a folder that the user picks.
 
 Each part ends with a headless test of the page.
