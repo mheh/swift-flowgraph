@@ -148,7 +148,8 @@ So the program in the page needs no Swift parser and no package description. Its
 - [x] **2. Head and base from the library**, also from two projects.
 - [x] **3. A start screen** in place of the empty graph, and a review of the toolbar, the status line, and the empty states.
       With no root, the graph view offers the entry points. The toolbar has three groups: where the views start, what they hold, and the snapshots.
-- [ ] **4. `core.js` in parts**: storage, model, the state of the comparison, toolbar.
+- [x] **4. `core.js` in parts**: `model.js` reads a snapshot, `core.js` holds the state and the comparison, `toolbar.js` and `panel.js` hold the controls. The storage is `store.js`.
+      `Tests/page/controls.js` tests the controls, and it passed before and after the split.
 - [ ] **5. Speed, measured** on a Swift and on a C snapshot: load, first render, scroll of the table, change of the root.
 - [ ] **6. The exporter in the page** for a C or C++ index store, with a folder that the user picks.
 

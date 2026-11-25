@@ -65,9 +65,8 @@ const FGDiff = (() => {
   /**
    * The merged model of two snapshots.
    * @param {Model} H the head  @param {Model} B the base
-   * @param {{bodyIn: Function, exitsIn: Function}} tools  how core.js reads a body and its ways out from one model
    */
-  function merge(H, B, tools) {
+  function merge(H, B) {
     const n0 = H.N.length;
     const baseByUsr = new Map(B.N.map(n => [n.usr, n.id]));
     // baseOf: merged symbol → symbol of the base. mid: symbol of the base → merged symbol.
@@ -94,7 +93,7 @@ const FGDiff = (() => {
     // Both sides name a symbol by its merged number, so a caller of a function with a new signature does not count as changed by that alone.
     const same = id => id, toMerged = id => mid.get(id);
     const print = (model, id, key) => {
-      const b = tools.bodyIn(model, id);
+      const b = FGModel.bodyIn(model, id);
       if (!b) return model.out[id].map(e => `${e.kind} ${key(e.to)} ${e.count}`).sort().join('\n');
       const parts = [(b.async ? 'a' : '') + (b.throws ? 't' : '')];
       const walk = (steps, depth) => { for (const s of steps) { parts.push(depth + ownKey(s, key)); walk(s.children, depth + 1); } };
@@ -137,14 +136,14 @@ const FGDiff = (() => {
     const decl = { ...H.decl }, doc = { ...H.doc };
     for (const n of gone) { if (B.decl[n.id]) decl[mid.get(n.id)] = B.decl[n.id]; if (B.doc[n.id]) doc[mid.get(n.id)] = B.doc[n.id]; }
     const entries = N.filter(n => n.entry).sort((a, b) => (a.module + a.name).localeCompare(b.module + b.name));
-    return { ...H, files: H.files.concat(B.files), N, E, kids, decl, doc, entries, merged: true, head: H, base: B, baseOf, mid, headCount: n0, counts, bodyToo, tools,
+    return { ...H, files: H.files.concat(B.files), N, E, kids, decl, doc, entries, merged: true, head: H, base: B, baseOf, mid, headCount: n0, counts, bodyToo,
       bodyCache: new Map(), exitCache: new Map() };
   }
 
   // --- the two bodies of one symbol, as one outline
   function bodyOf(F, id) {
     if (F.bodyCache.has(id)) return F.bodyCache.get(id);
-    const hb = id < F.headCount ? F.tools.bodyIn(F.head, id) : null, bid = F.baseOf.get(id), bb = bid != null ? F.tools.bodyIn(F.base, bid) : null;
+    const hb = id < F.headCount ? FGModel.bodyIn(F.head, id) : null, bid = F.baseOf.get(id), bb = bid != null ? FGModel.bodyIn(F.base, bid) : null;
     let out = null;
     if (hb || bb) {
       const same = x => x, toMerged = x => F.mid.get(x);
@@ -198,7 +197,7 @@ const FGDiff = (() => {
   function exitsOf(F, id) {
     if (F.exitCache.has(id)) return F.exitCache.get(id);
     const bid = F.baseOf.get(id);
-    const he = id < F.headCount ? F.tools.exitsIn(F.head, id) : [], be = bid != null ? F.tools.exitsIn(F.base, bid) : [];
+    const he = id < F.headCount ? FGModel.exitsIn(F.head, id) : [], be = bid != null ? FGModel.exitsIn(F.base, bid) : [];
     const key = e => `${e.type}\u0001${e.text}\u0001${e.when.join(' → ')}\u0001${e.caught ? 1 : 0}`;
     const left = new Map();
     for (const e of be) left.set(key(e), (left.get(key(e)) || 0) + 1);

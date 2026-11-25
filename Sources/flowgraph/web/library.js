@@ -75,7 +75,7 @@ const FGLibrary = (() => {
     const read = [], errors = [];
     for (const file of files) {
       let text, snapshot;
-      try { text = await file.text(); snapshot = JSON.parse(text); FG.check(snapshot); }
+      try { text = await file.text(); snapshot = JSON.parse(text); FGModel.check(snapshot); }
       catch (e) { errors.push(`${file.name}: ${e.message}`); continue; }
       read.push({ snapshot, name: file.name });
       try { await FGStore.put(snapshot, file.name, text); }

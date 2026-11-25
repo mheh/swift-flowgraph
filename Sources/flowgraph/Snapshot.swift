@@ -49,7 +49,7 @@ func projectInfo(_ options: Options, indexed: Date?, stale: Int, unindexed: Int)
   return info
 }
 
-/// The snapshot of one project, in the format that web/core.js documents.
+/// The snapshot of one project, in the format that web/model.js documents.
 func makeSnapshot(_ options: Options) async throws -> Data {
   let byEntry = !options.entries.isEmpty || options.product != nil
   let up = try depth(options.up ?? (byEntry ? "0" : "1"))

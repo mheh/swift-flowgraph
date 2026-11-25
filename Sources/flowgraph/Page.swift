@@ -1,6 +1,6 @@
 import Foundation
 
-/// The viewer: index.html, core.js, and one view-*.js for each view, as the resources of the tool.
+/// The viewer: index.html and the scripts that it names, as the resources of the tool.
 struct Page {
   let web: URL
 

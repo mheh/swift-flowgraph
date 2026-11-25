@@ -274,10 +274,13 @@ The viewer is `Sources/flowgraph/web`:
 | File | Content |
 |---|---|
 | `index.html` | The controls, the tabs, and one `<script>` line for each file below. |
-| `core.js` | Reads a snapshot, holds the state that all views share (roots, depths, filters, hidden symbols, the selection), and works out the scope: the symbols that the roots reach. |
+| `model.js` | Reads a snapshot into the model that the views use. Its head documents the snapshot format and the types. |
+| `core.js` | Holds the snapshot that is open and the state that all views share (roots, depths, filters, hidden symbols, the selection), and works out the scope: the symbols that the roots reach. |
 | `view-graph.js` | The graph view. |
 | `view-table.js` | The table view. |
 | `view-trace.js` | The trace view. |
+| `toolbar.js` | The search and the controls above the views. |
+| `panel.js` | The side panel. |
 | `diff.js` | The comparison of two snapshots: the merged model that every view reads. |
 | `store.js` | The snapshots that the browser keeps. |
 | `library.js` | The list of those snapshots, where one is opened or made the base. |
@@ -293,7 +296,7 @@ A view is one file that calls `FG.registerView`, and one `<script src>` line in 
     });
 
 `FG.model` holds the symbols (`N`), the edges (`E`), and the edges of each symbol (`out`, `inc`). `FG.body(id)` gives the outline of a body, `FG.exits(id)` its ways out, and `FG.isMarked(id)` the marks. With a base chosen, each symbol, edge, and step has a `diff` field, which `diff.js` documents. A view that does not read it shows both snapshots as one. `FG.state` is the shared state, and a view changes it with `FG.select`, `FG.setRoot`, `FG.hide`, `FG.show`, or by a write to `FG.state` and a call of `FG.refresh()`.
-The head of `core.js` documents the snapshot format and the types.
+The head of `model.js` documents the snapshot format and the types.
 
 ## Limits
 
