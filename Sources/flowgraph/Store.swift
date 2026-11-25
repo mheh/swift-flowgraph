@@ -1,7 +1,6 @@
 import Foundation
 import IndexStore
 
-/// One symbol as the index names it, copied out of a record.
 struct Sym {
   var usr: String
   var name: String
@@ -30,7 +29,6 @@ struct Sym {
   static let data: Set<String> = ["variable", "field", "enumConstant", "instanceProperty", "classProperty", "staticProperty"]
 }
 
-/// One occurrence of a symbol in a file, with the symbols that it relates to.
 struct Occ {
   var sym: Sym
   var roles: IndexStoreSymbolRoles
@@ -52,7 +50,6 @@ struct Reading {
   var main: Bool
 }
 
-/// What the units of the index say about the source files of the project.
 struct ReadingPlan {
   var readings: [Reading] = []
   /// For a symbol that more than one module defines under one name, the modules that define it.
@@ -69,18 +66,11 @@ struct ReadingPlan {
 /// The index store itself: its units and its records, with no database between.
 final class RawStore {
   private let store: IndexStore
+  private lazy var homes = findHomes()
+  private var holders: [String: [String: Sym]] = [:]
 
-  init(path: String, lib: String) throws {
-    final class Box: @unchecked Sendable { var result: Result<IndexStoreLibrary, Error>? }
-    let box = Box()
-    let done = DispatchSemaphore(value: 0)
-    let url = URL(fileURLWithPath: lib)
-    Task.detached {
-      do { box.result = .success(try await IndexStoreLibrary.at(dylibPath: url)) } catch { box.result = .failure(error) }
-      done.signal()
-    }
-    done.wait()
-    store = try box.result!.get().indexStore(at: URL(fileURLWithPath: path))
+  init(path: String, lib: String) async throws {
+    store = try await IndexStoreLibrary.at(dylibPath: URL(fileURLWithPath: lib)).indexStore(at: URL(fileURLWithPath: path))
   }
 
   /// A compilation with no module name is named after its binary. An object file is in a directory of that binary:
@@ -93,14 +83,12 @@ final class RawStore {
     return parts.count >= 2 ? String(parts[parts.count - 2]) : ""
   }
 
-  /// One record that one compilation read.
   private struct Use {
     var file: String
     var record: String
     var context: String
     /// The module that the index names for the file in this compilation, or "" when it names none.
     var named: String
-    /// True when the file is the file that was compiled.
     var main: Bool
   }
 
@@ -183,10 +171,9 @@ final class RawStore {
     return plan
   }
 
-  /// Walks each unit and the records that it depends on.
   private func compilations(of files: Set<String>, targets: Set<String>) -> Compilations {
     var names: [String] = []
-    try? store.unitNames(sorted: true).forEach { name in
+    store.unitNames(sorted: true).forEach { name in
       names.append(name.string)
       return .continue
     }
@@ -216,7 +203,7 @@ final class RawStore {
       let context = unitModule.isEmpty ? binary(unit.outputFile.string) : unitModule
       if unitModule.isEmpty { found.binaries.insert(context) }
       let date = unit.modificationDate
-      try? unit.dependencies.forEach { dep in
+      unit.dependencies.forEach { dep in
         let named = dep.moduleName.string
         if !named.isEmpty { found.sees[context, default: []].insert(named) }
         guard dep.kind != .unit, let file = paths.file(dep.filePath.string) else { return .continue }
@@ -240,7 +227,7 @@ final class RawStore {
     var always = Set<String>()
     for use in found.uses where found.mainFiles.contains(use.file) {
       guard let record = try? store.record(named: use.record) else { continue }
-      try? record.symbols.forEach { s in
+      record.symbols.forEach { s in
         guard s.roles.contains(.definition) else { return .continue }
         let kind = s.kind.description
         guard Sym.callable.contains(kind) || kind == "variable" else { return .continue }
@@ -255,6 +242,67 @@ final class RawStore {
     return owners.filter { $0.value.count > 1 || always.contains($0.key) }
   }
 
+  /// Where a symbol is declared: the module that the index names for the record, and the type that holds the symbol.
+  struct Declaration {
+    var module: String
+    var system: Bool
+    var holder: Sym?
+  }
+
+  private struct Home {
+    var record: String
+    var module: String
+    var system: Bool
+    /// A record with a module comes before one with none. The names decide the rest, so each build gives one answer.
+    var rank: (Int, String, String) { (module.isEmpty ? 1 : 0, module, record) }
+  }
+
+  /// The record that declares each symbol of the store. A symbol of another module is in no file of the project,
+  /// and the records of that module say where it belongs.
+  private func findHomes() -> [String: Home] {
+    var names: [String] = []
+    store.unitNames(sorted: true).forEach { name in
+      names.append(name.string)
+      return .continue
+    }
+    var homes: [String: Home] = [:]
+    var seen = Set<String>()
+    for name in names {
+      guard let unit = try? store.unit(named: name) else { continue }
+      let unitModule = unit.moduleName.string
+      unit.dependencies.forEach { dep in
+        guard dep.kind == .record else { return .continue }
+        let named = dep.moduleName.string
+        let home = Home(record: dep.name.string, module: named.isEmpty ? unitModule : named, system: dep.isSystem)
+        guard seen.insert(home.record + "\n" + home.module).inserted, let record = try? store.record(named: home.record) else { return .continue }
+        record.symbols.forEach { s in
+          guard !s.roles.isDisjoint(with: [.definition, .declaration]) else { return .continue }
+          let usr = s.usr.string
+          if let old = homes[usr], old.rank <= home.rank { return .continue }
+          homes[usr] = home
+          return .continue
+        }
+        return .continue
+      }
+    }
+    return homes
+  }
+
+  func declaration(of usr: String) -> Declaration? {
+    guard let home = homes[usr] else { return nil }
+    if holders[home.record] == nil {
+      var found: [String: Sym] = [:]
+      forEachOccurrence(of: home.record) { occ in
+        guard !occ.roles.isDisjoint(with: [.definition, .declaration]), found[occ.sym.usr] == nil,
+          let holder = occ.relations.first(where: { $0.roles.contains(.childOf) })?.sym
+        else { return }
+        found[occ.sym.usr] = holder
+      }
+      holders[home.record] = found
+    }
+    return Declaration(module: home.module, system: home.system, holder: holders[home.record]?[usr])
+  }
+
   func forEachOccurrence(of record: String, _ body: (Occ) -> Void) {
     guard let record = try? store.record(named: record) else { return }
     func copy(_ s: borrowing IndexStoreSymbol) -> Sym {
@@ -267,7 +315,7 @@ final class RawStore {
       }
       return Sym(usr: usr, name: name, kind: s.kind.description, sub: s.subKind, local: s.properties.contains(.local), swift: s.language == .swift)
     }
-    try? record.occurrences.forEach { o in
+    record.occurrences.forEach { o in
       var relations: [(roles: IndexStoreSymbolRoles, sym: Sym)] = []
       o.relations.forEach { r in
         relations.append((r.roles, copy(r.symbol)))

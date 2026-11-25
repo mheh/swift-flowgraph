@@ -1,12 +1,10 @@
 import Foundation
 
-/// One package: the project, or one checkout of a dependency.
 struct PackageInfo {
   var name: String
   /// The path from the project, with a slash at the end. It is empty for the project.
   var prefix: String
   var products: [(name: String, type: String)] = []
-  /// The modules that each product names.
   var productTargets: [String: [String]] = [:]
   /// The modules and the products that each module needs.
   var needs: [String: (targets: [String], products: [String])] = [:]

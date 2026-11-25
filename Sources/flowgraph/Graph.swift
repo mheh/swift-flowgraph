@@ -1,8 +1,6 @@
 import Foundation
 import IndexStore
-import IndexStoreDB
 
-/// One declaration of the project, or of another module when `--external` is set.
 struct Node {
   var usr: String
   var name: String
@@ -13,7 +11,6 @@ struct Node {
   var parent = -1
   var isDefinition = false
   var external = true
-  /// True for a symbol of the SDK or of the toolchain.
   var system = false
   /// The source marks it as an entry point: `@_cdecl`, `@c`, `@main`, or a C `main`. Or the project hands it to code of another module.
   var entry = false
@@ -23,14 +20,12 @@ struct Node {
   var label = ""
 }
 
-/// The place of a definition: the file, and the line and the column of its name.
 struct Place: Hashable {
   var file: Int
   var line: Int
   var column: Int
 }
 
-/// One relation between two symbols, with the count of the places where it occurs.
 struct EdgeKey: Hashable {
   var from: Int
   var to: Int
@@ -211,7 +206,6 @@ struct Graph {
   func fileIndex(_ shown: String) -> Int? { fileIds[shown] }
   func definition(at place: Place) -> Int? { places[place] }
   func topLevel(of shown: String) -> Int? { ids["toplevel:" + shown] }
-  /// Each use in one file: where it is, what it uses, and the kind of the edge.
   /// They are in the order of the source, so that two snapshots of the same code are the same.
   func uses(in file: Int) -> [Site] {
     (sites[file] ?? []).sorted { a, b in
@@ -225,25 +219,19 @@ struct Graph {
     return n.external && n.declared && !n.system && n.module != "Swift" && !n.module.hasPrefix("_")
   }
 
-  /// The module of each symbol of another module: from its definition in the index, or else from its mangled name.
-  mutating func nameExternals(from db: IndexStoreDB) {
+  /// The module of each symbol of another module: from its declaration in the index, or else from its mangled name.
+  mutating func nameExternals(from store: RawStore) {
     // The type that holds a member comes into the list while the loop runs, and gets its module in a later turn.
     var i = -1
     while i + 1 < nodes.count {
       i += 1
       guard nodes[i].external, nodes[i].module.isEmpty else { continue }
       let usr = nodes[i].usr
-      var holder: Symbol?
-      var module = ""
-      var system = false
-      db.forEachSymbolOccurrence(byUSR: usr, roles: [.definition, .declaration]) { occ in
-        module = occ.location.moduleName
-        system = occ.location.isSystem
-        holder = occ.relations.first { $0.roles.contains(.childOf) }?.symbol
-        return false
-      }
+      let found = store.declaration(of: usr)
+      var module = found?.module ?? ""
+      let system = found?.system ?? false
       // A member of a type of another module is named with its type, as a member of the project is.
-      if let holder, parents[i] == nil, let parent = id(Sym(usr: holder.usr, name: holder.name, kind: "\(holder.kind)", local: holder.properties.contains(.local) || holder.subKind == .swiftGenericTypeParam, swift: holder.language == .swift), in: module), parent != i { parents[i] = parent }
+      if let holder = found?.holder, parents[i] == nil, let parent = id(holder, in: module), parent != i { parents[i] = parent }
       nodes[i].declared = !module.isEmpty
       nodes[i].system = system
       if module.isEmpty {
