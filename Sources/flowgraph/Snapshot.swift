@@ -64,8 +64,22 @@ func openIndex(store: String, lib: String) throws -> IndexStoreDB {
   return db
 }
 
-/// The graph of one project from its index store.
-func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (graph: Graph, outlines: [Int: Outline], fileCount: Int, indexed: Date?, stale: Int, unindexed: Int) {
+/// What `readGraph` gives: the graph of a project, and what the index says about the build that made it.
+struct ProjectGraph {
+  var graph: Graph
+  /// The outline of the body of each function, by the number that the node had before the graph was folded (`Graph.finalId`).
+  var outlines: [Int: Outline]
+  var fileCount: Int
+  /// The date of the index, and the counts of the source files that are newer than it or not in it.
+  var indexed: Date?
+  var stale: Int
+  var unindexed: Int
+  /// The modules that are named after a binary, each with the binaries that read its files (`ReadingPlan.binaries`).
+  var binaries: [String: Set<String>]
+}
+
+/// The graph of one project from its index store. `targets` are the names of the targets of its packages.
+func readGraph(_ options: Options, checkoutDirectories: [String], targets: Set<String>) throws -> ProjectGraph {
   let stores = options.indexStore.map { [$0] } ?? findIndexStores(project: options.project)
   guard !stores.isEmpty else {
     throw Failure("no index store under \(options.project). Build the project first (swift build), or give --index-store.")
@@ -76,35 +90,38 @@ func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (gra
   let scanned = options.sources.isEmpty ? [options.project] : options.sources.map { $0.hasPrefix("/") ? $0 : options.project + "/" + $0 }
   let files = sourceFiles(under: scanned + checkoutDirectories)
   // A store of a build of another copy of the project has no symbol for these files: the next store is tried then.
-  var opened: (store: String, db: IndexStoreDB)?
+  var opened: (store: String, raw: RawStore, plan: ReadingPlan)?
   for store in stores {
-    let db = try openIndex(store: store, lib: lib)
-    if files.contains(where: { path in !db.symbolOccurrences(inFilePath: path).isEmpty }) {
-      opened = (store, db)
+    let raw = try RawStore(path: store, lib: lib)
+    let plan = raw.plan(files: Set(files), targets: targets)
+    if !plan.readings.isEmpty {
+      opened = (store, raw, plan)
       break
     }
     log("index store with no symbol of these sources: \(store)")
   }
-  guard let (store, db) = opened else {
+  guard let (store, raw, plan) = opened else {
     throw Failure("no index has a symbol for the \(files.count) source files under \(scanned.joined(separator: ", ")). Build the project first (swift build), or give --index-store.")
   }
   log("index store: \(store)")
 
   var graph = Graph()
-  for file in files { graph.read(file: file, relativeTo: options.project, from: db) }
-  graph.foldCNames()
-  graph.nameExternals(from: db)
+  graph.owners = plan.owners
+  graph.sees = plan.sees
+  for reading in plan.readings { graph.read(reading, relativeTo: options.project, from: raw) }
+  // The database finds the declaration of a symbol of another module, which is in no file of the project.
+  graph.nameExternals(from: try openIndex(store: store, lib: lib))
   // The bodies are read before the graph is folded, because a closure that goes to another module becomes a node.
+  let rules = try EntryRules(project: options.project)
   var early: [Int: Outline] = [:]
   if options.bodies {
-    let rules = try EntryRules(project: options.project)
     for path in files where path.hasSuffix(".swift") {
       let shown = path.hasPrefix(options.project + "/") ? String(path.dropFirst(options.project.count + 1)) : path
       guard let file = graph.fileIndex(shown) else { continue }
       early.merge(BodyReader.read(path: path, file: file, shown: shown, rules: rules, into: &graph)) { old, _ in old }
     }
   }
-  graph.finish(keepExternal: options.external)
+  graph.finish(keepExternal: options.external) { rules.allows(module: $0.module, name: $0.name) }
   guard !graph.nodes.isEmpty else {
     throw Failure("the index has no symbol for the \(files.count) source files under \(scanned.joined(separator: ", ")). Is the index of this project?")
   }
@@ -117,7 +134,7 @@ func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (gra
   var stale = 0, unindexed = 0
   for path in files {
     let date = changed(path) ?? .distantPast
-    if let unit = db.dateOfLatestUnitFor(filePath: path) {
+    if let unit = plan.dates[path] {
       if date > unit { stale += 1 }
     } else if path.hasSuffix(".swift") {
       if let indexed, date > indexed { stale += 1 } else { unindexed += 1 }
@@ -125,7 +142,7 @@ func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (gra
   }
   if stale > 0 { log("warning: \(stale) source files changed after the index was written. Build the project again for a snapshot of the current code.") }
   if unindexed > 0 { log("note: \(unindexed) Swift files are not in the index, because the build did not compile them. The snapshot has no symbol of them.") }
-  return (graph, early, files.count, indexed, stale, unindexed)
+  return ProjectGraph(graph: graph, outlines: early, fileCount: files.count, indexed: indexed, stale: stale, unindexed: unindexed, binaries: plan.binaries)
 }
 
 /// Checks another commit of the project out and builds it, and points the options at that copy.
@@ -190,9 +207,13 @@ func makeSnapshot(_ options: Options) throws -> Data {
   if let wanted = options.product, !packages.contains(where: { $0.products.contains { $0.name == wanted } }) {
     throw Failure("no product is named \(wanted). `flowgraph list products` prints them.")
   }
-  var (graph, early, fileCount, indexed, stale, unindexed) = try readGraph(options, checkoutDirectories: options.checkouts ? checkoutDirectories : [])
+  let targets = targetNames(of: packages)
+  let read = try readGraph(options, checkoutDirectories: options.checkouts ? checkoutDirectories : [], targets: targets)
+  var graph = read.graph
+  let (early, fileCount, indexed, stale, unindexed) = (read.outlines, read.fileCount, read.indexed, read.stale, read.unindexed)
 
-  let moduleProducts = memberships(of: packages)
+  var moduleProducts = memberships(of: packages)
+  let binaryNames = addBinaries(read.binaries, to: &moduleProducts, targets: targets)
   var roots: [Int] = []
   for root in options.roots + options.entries {
     let found = graph.find(root)
@@ -253,7 +274,8 @@ func makeSnapshot(_ options: Options) throws -> Data {
     "format": "flowgraph", "version": 1, "project": projectInfo(options, indexed: indexed, stale: stale, unindexed: unindexed),
     "files": graph.files, "kinds": kinds, "modules": modules, "packages": packageNames, "edgeKinds": edgeKinds,
     "symbols": symbolRows, "usrs": graph.nodes.map(\.usr), "edges": edgeRows,
-    "products": packages.flatMap { p in p.products.map { ["name": $0.name, "type": $0.type, "package": p.name] } },
+    "products": packages.flatMap { p in p.products.map { ["name": $0.name, "type": $0.type, "package": p.name] } }
+      + binaryNames.map { ["name": $0, "type": "binary", "package": ""] },
     "moduleProducts": moduleProducts,
     "stepKinds": stepKinds, "bodies": bodies, "labels": labels, "replace": try EntryRules(project: options.project).replace,
     "decl": Dictionary(uniqueKeysWithValues: (extra?.decl ?? [:]).map { ("\($0)", $1) }),

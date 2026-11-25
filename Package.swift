@@ -15,6 +15,7 @@ let package = Package(
       name: "flowgraph",
       dependencies: [
         .product(name: "IndexStoreDB", package: "indexstore-db"),
+        .product(name: "IndexStore", package: "indexstore-db"),
         .product(name: "SwiftSyntax", package: "swift-syntax"),
         .product(name: "SwiftParser", package: "swift-syntax"),
       ],

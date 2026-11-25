@@ -12,6 +12,32 @@ struct PackageInfo {
   var needs: [String: (targets: [String], products: [String])] = [:]
 }
 
+/// The names of the targets of the packages. A target of a package is a module, and never a binary of a build with no packages.
+func targetNames(of packages: [PackageInfo]) -> Set<String> {
+  Set(packages.flatMap { $0.needs.keys })
+}
+
+/// A build with no packages has binaries in place of products: a binary holds its own files and the headers that it reads.
+/// Adds each module that is named after a binary to `memberships`, and gives the names of the binaries, in order.
+func addBinaries(_ binaries: [String: Set<String>], to memberships: inout [String: [String]], targets: Set<String>) -> [String] {
+  let packaged = memberships
+  var names = Set<String>()
+  for (module, readers) in binaries where packaged[module] == nil && !targets.contains(module) {
+    var found = Set<String>()
+    for reader in readers {
+      // A target of a package is in the products of the package already, or in none of them.
+      if let known = packaged[reader] {
+        found.formUnion(known)
+      } else if !targets.contains(reader) {
+        found.insert(reader)
+        names.insert(reader)
+      }
+    }
+    memberships[module] = found.sorted()
+  }
+  return names.sorted()
+}
+
 /// The products that each module is linked into: a product holds the targets that it names and all that they need,
 /// in its own package and in the packages of its dependencies.
 func memberships(of packages: [PackageInfo]) -> [String: [String]] {

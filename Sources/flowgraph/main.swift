@@ -24,7 +24,8 @@ func main() throws {
     try Page().site(at: out)
     print(out)
   case .listEntries:
-    let graph = try readGraph(options, checkoutDirectories: options.checkouts ? readPackages(project: options.project, withCheckouts: true).checkoutDirectories : []).graph
+    let (packages, checkouts) = readPackages(project: options.project, withCheckouts: options.checkouts)
+    let graph = try readGraph(options, checkoutDirectories: checkouts, targets: targetNames(of: packages)).graph
     for n in graph.nodes where n.entry { print("\(n.module).\(n.name)\t\(graph.files[n.file]):\(n.line)\t\(n.label)") }
   case .listProducts:
     for p in readPackages(project: options.project, withCheckouts: true).packages {

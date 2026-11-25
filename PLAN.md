@@ -31,13 +31,13 @@ the body outlines (SwiftSyntax), the products (SwiftPM), and the rules for entry
 
 ## Goal 1: the open work, in order
 
-- [x] **A. The count of stale files.** Done, not committed. A file with no unit is stale only when it is newer than the index.
+- [x] **A. The count of stale files.** Done. A file with no unit is stale only when it is newer than the index.
       The others are counted apart: the tool prints a note, and the snapshot holds `unindexedFiles`.
       Tested on the fixture: a build of one target gives 0 stale and 3 not in the index, and a touched file and a new file give 2 stale.
-- [x] **B. README: the image and the use in CI.** Done, not committed. The sections "The image" and "In CI".
-- [x] **C. Test `flowgraph.json`.** Done, not committed. `only`, `except`, the `*` pattern, and `replace` work on the fixture, and the page shows the marks.
+- [x] **B. README: the image and the use in CI.** Done. The sections "The image" and "In CI".
+- [x] **C. Test `flowgraph.json`.** Done. `only`, `except`, the `*` pattern, and `replace` work on the fixture, and the page shows the marks.
       A file of a wrong form was ignored with no word. The tool now stops with a message. `Tests/fixture/check.sh` holds the case, and it passes in the image.
-- [x] **D. Noise in the trace.** Done, not committed. The trace hides the calls that the compiler puts in for a literal and for a string with values in it,
+- [x] **D. Noise in the trace.** Done. The trace hides the calls that the compiler puts in for a literal and for a string with values in it,
       as it hides the operators. One function with 67 such sites went from 57 call boxes to 1.
 - [ ] **E. The false status after a fast regroup.** Not reproduced in 48 fast regroups with a headless browser.
       One cause is closed by reading the code: the handler for a failed layout no longer writes over the status of a layout that ended. Not confirmed.
@@ -85,6 +85,28 @@ What is missing, in the order of its weight:
 4. **Bodies.** The outlines come from SwiftSyntax, so C and C++ have none, and the trace and the comparison of bodies are empty.
    libclang gives a real tree and comes with the toolchain. tree-sitter is lighter, and it does not expand macros.
 5. **Macros.** 9,199 macro symbols with no edge to them make noise in the table.
+
+### Goal 2: the work
+
+- [x] **1. One symbol for each binary.** Done. The exporter reads the index through its units and no longer through the database of the index reader.
+      A compilation with no module name gets the name of its binary from the path of its object file. A C function or variable that more than one binary defines has the binary in its key.
+      Each binary is a module and a product of the type `binary`. A header that several binaries read is a module with the name of its directory.
+      On the trial codebase: 9 binaries, 14 modules of shared headers, 39,886 symbols, 219,128 edges, in about 3 s.
+      Not solved: a static library that two binaries link is a binary of its own, so its calls of a function that both binaries define stay with no target (8 call sites in the trial).
+- [x] **2. Entry points and macros.** Done. A C function is an entry point when its binary exports it: the attribute on its line or on the line above, or a macro there that holds the attribute.
+      The trial codebase has 14 (the exported functions of its three modules and of its two renderers, and three `main`). A first rule, "nothing in the project calls it", gave 1,350 and was dropped.
+      A macro that nothing uses is left out.
+- [x] **3. Function tables.** Done. A write of a field and the name of a function on one line give a `dispatch` edge from the field to the function.
+      A field or a variable that the code calls has the kind `functionField` or `functionVariable`. On the trial codebase a path now goes from the frame function of the host, through the table, to the frame function of the module.
+      A call between the write and the name ends the link. Without this rule, `handle = create(name, callback)` linked the handle to the callback,
+      and in a comparison of the test project 917 symbols counted as affected by 4 changed bodies. With the rule it is 16.
+- [x] **4. Every record of a header (the cure for G).** Done. It follows from the reader of step 1.
+      Measured on the two build trees of G: the old tool gave 2 and 1 symbols that the other tree did not have; the new tool gives the same set of symbols for both.
+- [ ] **5. Bodies for C and C++.** Not started, and not asked for yet. libclang is the first choice.
+
+Checked for Swift: the fixture package gives the same snapshot from the old and from the new exporter, apart from the time. The test project of 2,205 files gives the same products and the same entry points;
+its C symbols have other names and modules where the old reader gave none (a field now leads with its struct, and a header symbol has the module of its header).
+A path with `..` in the index is resolved before the lookup: without this, 73 macros of a header that was included through `../` were read as symbols of a dependency.
 
 ## Goal 3: what is known
 

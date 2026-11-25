@@ -90,7 +90,7 @@
     };
     if (focus == null) {
       headBox.innerHTML = '';
-      list.innerHTML = `<div class="none">${Object.keys(FG.model.bodies).length ? 'Select a function, or make one the root, to see what its body does.' : 'This snapshot has no bodies. Make it again with no --no-bodies.'}</div>`;
+      list.innerHTML = `<div class="none">${Object.keys(FG.model.bodies).length ? 'Select a function, or make one the root, to see what its body does.' : 'This snapshot has no bodies. The outline of a body is read from Swift sources only, and --no-bodies leaves it out.'}</div>`;
       FG.status('');
       return;
     }

@@ -26,6 +26,29 @@ A file that the build did not compile is not in the index. The tool notes the co
 
 `flowgraph --help` lists each option.
 
+## A C or C++ project
+
+The clang of a Swift toolchain, and the clang of Xcode, write the same index when they get `-index-store-path`. Build the project with that flag, and give the directory to the tool:
+
+    cmake -S . -B build -DCMAKE_C_FLAGS="-index-store-path $PWD/build/idx" -DCMAKE_CXX_FLAGS="-index-store-path $PWD/build/idx"
+    cmake --build build
+    flowgraph snapshot . --sources src --index-store build/idx --out snapshot.json
+
+C names a function by its name alone, so two binaries of one project can each define a function of the same name. The tool keeps them apart:
+
+- A compilation that names no module belongs to a **binary**, which the tool reads from the path of the object file: `<binary>.dir/` of CMake, `<target>.build/` of SwiftPM and of Xcode, and else the directory of the object file.
+  Each binary is a module of the snapshot and a product of the page, with the type `binary`.
+- A function or a variable that more than one binary defines is one symbol for each of them. A file that is compiled into three binaries gives three sets of symbols.
+- A header that one binary reads belongs to that binary. A header that several binaries read is a module of its own, with the name of its directory, and it is in the product of each binary that reads it.
+  When a binary has the same name as the directory, the module of the headers is `<name> (shared)`.
+- A function that its binary exports is an entry point: the text `visibility("default")` or `dllexport` on its line or on the line above, or a macro there whose definition holds that text.
+- A field or a variable that the code calls holds a function. Its kind is `functionField` or `functionVariable`, and the page draws it with the functions.
+  A statement that writes such a field and names a function gives a `dispatch` edge from the field to the function, so a path goes from the caller through the table to the function that the table holds.
+  The same holds for a Swift variable or property that holds a function.
+- A macro that nothing uses is left out.
+
+The outline of a body is read from Swift sources only, so the trace of a C function is empty.
+
 ## The three forms of the viewer
 
 | Command | Result |
@@ -191,6 +214,7 @@ The page is then at `…/index.html?snapshot=head.json`, and from the second run
 An entry point is code that a caller outside the project starts:
 
 - a function with `@_cdecl`, `@c`, or `@main`, or a C `main`;
+- a C or C++ function that its binary exports (see "A C or C++ project");
 - the top-level code of a `main.swift`;
 - a function or a closure that the project hands to a function of a dependency, for example a handler that it registers. Its name is the call that takes it, with the literal arguments: `get("users") { }`. The standard library and the SDK do not count, so a closure for `map` is no entry point.
 
@@ -228,7 +252,7 @@ The `product` menu of the page changes the product, and `group: by product` give
 | reads, writes | the body reads or writes a variable or a property |
 | uses | the body names a type |
 | inherits | a type inherits from or conforms to another |
-| dispatch | an override, or the implementation of a protocol requirement: a call of the base can land here |
+| dispatch | an override, or the implementation of a protocol requirement: a call of the base can land here. Also from a field that holds a function to each function that the code stores in it |
 
 ## Add a view
 
@@ -258,11 +282,13 @@ The head of `core.js` documents the snapshot format and the types.
 
 ## Limits
 
-- The trace is for Swift. A C function has edges, and no outline.
+- The trace is for Swift. A C or C++ function has edges, and no outline.
 - Local variables and parameters are not nodes.
-- Two builds of the same C header can give different symbols, so a comparison can show a macro or a declaration of a header as added or removed when the header did not change.
-  The index holds one record of a header for each context that compiled it: each C file that includes it, and the build of its module for Swift. The records are not the same: one can hold a macro that the other does not.
-  The index reader gives the record of one of these contexts, by the order of an internal number of each context. The name of a module build changes from one build directory to the next, and so can the record.
-  Such a symbol is in the list with the state added or removed, and it has no user. Each export of one build gives the same snapshot.
+- The index holds one record of a header for each context that compiled it: each C file that includes it, and the build of its module for Swift. The records are not the same: one can hold a macro that the other does not.
+  The tool reads every record and joins them, so two builds of one tree give the same symbols. A snapshot of a version before this one read one record only, by an order that changed with the build directory: compared with a new snapshot, it shows symbols of headers as added.
+- The link from a field to the function that it holds is read from the lines: a write of the field, and after it the name of a function, on one line, in one function. An assignment over two lines gives no link.
+  A call between the two gives no link either, because the function is then an argument of the call: `table.frame = wrap(frame)` links nothing. A function that a `switch` reaches by a number leaves no trace in the index.
+- A static library that is linked into two binaries is one binary of its own. A function that it calls and that each of the two binaries defines is then drawn as a symbol of another module, because the index does not say what is linked with what.
+- The binary of a C file is read from the path of its object file. A build that puts the object files of two binaries into one directory gives one binary.
 - A use inside a closure belongs to the function that holds the closure, unless the closure is an entry point.
 - A callee of a dependency has no body in the snapshot, so a `try` of it counts as a place where an error can leave.

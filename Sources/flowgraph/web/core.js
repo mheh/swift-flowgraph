@@ -10,7 +10,8 @@
 //   symbols: one row for each symbol: [name, kind, file, line, parent, module, external, entry, package]. external: 0 the project, 1 a dependency, 2 the standard library or the SDK
 //   usrs: the compiler identifier of each symbol, in the order of symbols
 //   edges: one row for each edge: [from, to, edgeKind, count, line of the first site]
-//   products: [{ name, type, package }], moduleProducts: { module: [product] }
+//   products: [{ name, type, package }], moduleProducts: { module: [product] }. type: executable, library, or binary for a build with no packages
+//   a kind of a symbol is a word of the index (function, struct, field, …), or functionField or functionVariable for a field or a variable that the code calls
 //   decl, doc: { symbol index: text }
 //   stepKinds: the kinds of the steps of a body
 //   bodies: { symbol index: [flags, last line, steps] }: the outline of the body of a function. flags: 1 async, 2 throws
