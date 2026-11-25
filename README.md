@@ -16,6 +16,7 @@ The tool has two parts:
 
 The project must be built first (`swift build`, or a build in Xcode), because the build writes the index.
 The snapshot is as fresh as the index: the tool warns when source files changed after the last build.
+A file that the build did not compile is not in the index. The tool notes the count of such files, and the page says it in the tip of the line under the title.
 
     flowgraph snapshot [project-dir]   Write the snapshot of a project.
     flowgraph page                     Write the viewer as one HTML file, empty or with a snapshot inside.
@@ -91,6 +92,9 @@ A project can give its marks, and narrow its entry points, in a `flowgraph.json`
       "entries": { "only": ["SomeModule.*"], "except": ["SomeModule.debug*"] }
     }
 
+`replace` holds the name of a module, or `Module.name` of a symbol, where the name of a member leads with its type: `SomeModule.SomeType.someMethod`.
+The tool stops with a message when the file is not of this form.
+
 ## Compare two snapshots
 
 The tool only exports. The page compares.
@@ -128,6 +132,60 @@ Each symbol of the project gets a state:
 
 A step is compared by its kind, its text, and what it uses. Comments and white space are not compared.
 
+## The image
+
+`mhehmsoth/swift-flowgraph:swift-6.4` holds the tool on the Swift 6.4 image for Linux, with the toolchain, so it builds a project and reads the index of that build.
+The entry point of the image is `flowgraph`, and its working directory is `/work`.
+
+    docker run --rm -v "$PWD:/work" --entrypoint swift mhehmsoth/swift-flowgraph:swift-6.4 build
+    docker run --rm -v "$PWD:/work" mhehmsoth/swift-flowgraph:swift-6.4 snapshot . --out snapshot.json --html page.html
+
+Build the project in the image, as the first line does: the index holds the full paths of the files, and the toolchain that wrote it reads it.
+For the same reason, compare two snapshots of the same platform: the symbols of the dependencies and of the system differ between macOS and Linux.
+
+`docker build -t flowgraph .` builds the image from this repository. The tag of the published image names the Swift version, because the index of a project is read by the toolchain that wrote it.
+
+## In CI
+
+A job builds the project in the image, writes the snapshot, and publishes the folder of `flowgraph site` on a static host.
+This job is for GitHub Actions and GitHub Pages. It compares each run with the run before it, with one build:
+
+    flowgraph:
+      runs-on: ubuntu-24.04
+      container:
+        image: mhehmsoth/swift-flowgraph:swift-6.4
+        credentials:                      # only when the image is private for you
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      steps:
+        - uses: actions/checkout@v7
+        - run: swift build
+        - shell: bash
+          run: |
+            site="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+            flowgraph site --out out
+            flowgraph snapshot . --out out/head.json
+            curl -fsSL "${site}/head.json" -o out/base.json || rm -f out/base.json
+        - uses: actions/upload-pages-artifact@v5
+          with:
+            path: out
+
+    pages:
+      needs: flowgraph
+      runs-on: ubuntu-24.04
+      permissions: { pages: write, id-token: write }
+      environment: github-pages
+      steps:
+        - uses: actions/deploy-pages@v5
+
+The page is then at `…/index.html?snapshot=head.json`, and from the second run the comparison is at `…/index.html?snapshot=head.json&base=base.json&view=diff`.
+
+- The base of that job is the run before, which is not always the commit before. For the base of a pull request, export it with `--ref`:
+  `flowgraph snapshot . --ref origin/main --out out/base.json`. That is a second build, in a worktree under `~/.cache/flowgraph`, so cache that directory. `--ref` needs the history of the ref, so check out with `fetch-depth: 0`.
+- A build of one product (`swift build --product <name>`) indexes the files of that product only. The snapshot holds those, and the tool notes how many files the build left out.
+- A hosted page is as public as its host. The snapshot holds the names of the symbols and the first line of each statement.
+- A job in a container needs what the build of the project needs: system packages, and the access to private dependencies.
+
 ## By entry point
 
 An entry point is code that a caller outside the project starts:
@@ -136,7 +194,8 @@ An entry point is code that a caller outside the project starts:
 - the top-level code of a `main.swift`;
 - a function or a closure that the project hands to a function of a dependency, for example a handler that it registers. Its name is the call that takes it, with the literal arguments: `get("users") { }`. The standard library and the SDK do not count, so a closure for `map` is no entry point.
 
-`entries.only` and `entries.except` of `flowgraph.json` hold patterns of `Module.name` for the functions of dependencies that make entry points.
+`entries.only` and `entries.except` of `flowgraph.json` hold patterns of `Module.name` for the functions of dependencies that make entry points. The name has no argument labels, and `*` stands for any text: `SomeModule.get` or `SomeModule.*`.
+The rules are for the functions and closures that the project hands over. An entry point by an attribute or by `main.swift` stays.
 
     flowgraph list entries <project-dir>
     flowgraph snapshot <project-dir> --entry Module.name --out snapshot.json

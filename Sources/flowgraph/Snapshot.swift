@@ -65,7 +65,7 @@ func openIndex(store: String, lib: String) throws -> IndexStoreDB {
 }
 
 /// The graph of one project from its index store.
-func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (graph: Graph, outlines: [Int: Outline], fileCount: Int, indexed: Date?, stale: Int) {
+func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (graph: Graph, outlines: [Int: Outline], fileCount: Int, indexed: Date?, stale: Int, unindexed: Int) {
   let stores = options.indexStore.map { [$0] } ?? findIndexStores(project: options.project)
   guard !stores.isEmpty else {
     throw Failure("no index store under \(options.project). Build the project first (swift build), or give --index-store.")
@@ -97,7 +97,7 @@ func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (gra
   // The bodies are read before the graph is folded, because a closure that goes to another module becomes a node.
   var early: [Int: Outline] = [:]
   if options.bodies {
-    let rules = EntryRules(project: options.project)
+    let rules = try EntryRules(project: options.project)
     for path in files where path.hasSuffix(".swift") {
       let shown = path.hasPrefix(options.project + "/") ? String(path.dropFirst(options.project.count + 1)) : path
       guard let file = graph.fileIndex(shown) else { continue }
@@ -112,12 +112,20 @@ func readGraph(_ options: Options, checkoutDirectories: [String]) throws -> (gra
   func changed(_ path: String) -> Date? { (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
   let indexed = changed(store + "/v5/units")
   // Each file has its own date in the index, because a build that fails writes the units of some files only.
-  let stale = files.filter { path in
-    guard let unit = db.dateOfLatestUnitFor(filePath: path) else { return path.hasSuffix(".swift") }
-    return (changed(path) ?? .distantPast) > unit
-  }.count
+  // A file with no unit was not compiled: the build made another product, or the file belongs to another platform.
+  // It is stale only when it is newer than the index, because then the build has not seen it yet.
+  var stale = 0, unindexed = 0
+  for path in files {
+    let date = changed(path) ?? .distantPast
+    if let unit = db.dateOfLatestUnitFor(filePath: path) {
+      if date > unit { stale += 1 }
+    } else if path.hasSuffix(".swift") {
+      if let indexed, date > indexed { stale += 1 } else { unindexed += 1 }
+    }
+  }
   if stale > 0 { log("warning: \(stale) source files changed after the index was written. Build the project again for a snapshot of the current code.") }
-  return (graph, early, files.count, indexed, stale)
+  if unindexed > 0 { log("note: \(unindexed) Swift files are not in the index, because the build did not compile them. The snapshot has no symbol of them.") }
+  return (graph, early, files.count, indexed, stale, unindexed)
 }
 
 /// Checks another commit of the project out and builds it, and points the options at that copy.
@@ -156,7 +164,7 @@ func checkOut(_ ref: String, for options: inout Options) throws {
 }
 
 /// Where the snapshot came from: the name of the project, and the commit when the project is a git repository.
-func projectInfo(_ options: Options, indexed: Date?, stale: Int) -> [String: Any] {
+func projectInfo(_ options: Options, indexed: Date?, stale: Int, unindexed: Int) -> [String: Any] {
   func git(_ arguments: String...) -> String? { run("/usr/bin/env", ["git"] + ["-C", options.project] + arguments) }
   var info: [String: Any] = [
     "name": options.title ?? URL(fileURLWithPath: options.project).lastPathComponent,
@@ -164,6 +172,7 @@ func projectInfo(_ options: Options, indexed: Date?, stale: Int) -> [String: Any
   ]
   if let indexed { info["indexed"] = ISO8601DateFormatter().string(from: indexed) }
   info["staleFiles"] = stale
+  if unindexed > 0 { info["unindexedFiles"] = unindexed }
   if let commit = git("rev-parse", "--short", "HEAD") {
     info["commit"] = commit
     info["branch"] = options.ref ?? git("rev-parse", "--abbrev-ref", "HEAD") ?? ""
@@ -181,7 +190,7 @@ func makeSnapshot(_ options: Options) throws -> Data {
   if let wanted = options.product, !packages.contains(where: { $0.products.contains { $0.name == wanted } }) {
     throw Failure("no product is named \(wanted). `flowgraph list products` prints them.")
   }
-  var (graph, early, fileCount, indexed, stale) = try readGraph(options, checkoutDirectories: options.checkouts ? checkoutDirectories : [])
+  var (graph, early, fileCount, indexed, stale, unindexed) = try readGraph(options, checkoutDirectories: options.checkouts ? checkoutDirectories : [])
 
   let moduleProducts = memberships(of: packages)
   var roots: [Int] = []
@@ -241,12 +250,12 @@ func makeSnapshot(_ options: Options) throws -> Data {
   let edgeRows: [[Int]] = graph.edges.map { [$0.key.from, $0.key.to, $0.key.kind, $0.value.count, $0.value.line] }
     .sorted { ($0[0], $0[1], $0[2]) < ($1[0], $1[1], $1[2]) }
   let snapshot: [String: Any] = [
-    "format": "flowgraph", "version": 1, "project": projectInfo(options, indexed: indexed, stale: stale),
+    "format": "flowgraph", "version": 1, "project": projectInfo(options, indexed: indexed, stale: stale, unindexed: unindexed),
     "files": graph.files, "kinds": kinds, "modules": modules, "packages": packageNames, "edgeKinds": edgeKinds,
     "symbols": symbolRows, "usrs": graph.nodes.map(\.usr), "edges": edgeRows,
     "products": packages.flatMap { p in p.products.map { ["name": $0.name, "type": $0.type, "package": p.name] } },
     "moduleProducts": moduleProducts,
-    "stepKinds": stepKinds, "bodies": bodies, "labels": labels, "replace": EntryRules(project: options.project).replace,
+    "stepKinds": stepKinds, "bodies": bodies, "labels": labels, "replace": try EntryRules(project: options.project).replace,
     "decl": Dictionary(uniqueKeysWithValues: (extra?.decl ?? [:]).map { ("\($0)", $1) }),
     "doc": Dictionary(uniqueKeysWithValues: (extra?.doc ?? [:]).map { ("\($0)", $1) }),
     "view": [

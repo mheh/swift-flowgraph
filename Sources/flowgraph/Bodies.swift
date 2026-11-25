@@ -49,14 +49,23 @@ struct EntryRules {
   /// What the project marks for replacement: the name of a module, or `Module.name` of a symbol.
   var replace: [String] = []
 
-  init(project: String) {
-    guard let data = FileManager.default.contents(atPath: project + "/flowgraph.json"),
-      let top = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { return }
-    replace = top["replace"] as? [String] ?? []
-    guard let entries = top["entries"] as? [String: Any] else { return }
-    only = entries["only"] as? [String] ?? []
-    except = entries["except"] as? [String] ?? []
+  /// A project with no `flowgraph.json` has no rules. A file that the tool cannot read as rules is an error, because rules that are left out with no word give a wrong snapshot.
+  init(project: String) throws {
+    let path = project + "/flowgraph.json"
+    guard let data = FileManager.default.contents(atPath: path) else { return }
+    guard let top = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      throw Failure("\(path) is not a JSON object")
+    }
+    func list(_ value: Any?, _ key: String) throws -> [String] {
+      guard let value else { return [] }
+      guard let texts = value as? [String] else { throw Failure("\(path): \(key) must be a list of strings") }
+      return texts
+    }
+    replace = try list(top["replace"], "replace")
+    guard let value = top["entries"] else { return }
+    guard let entries = value as? [String: Any] else { throw Failure("\(path): entries must be an object with only and except") }
+    only = try list(entries["only"], "entries.only")
+    except = try list(entries["except"], "entries.except")
   }
 
   /// A pattern is `Module.name`, and `*` stands for any text.

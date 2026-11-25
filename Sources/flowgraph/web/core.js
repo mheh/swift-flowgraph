@@ -4,7 +4,8 @@
 //
 // The snapshot format, version 1 (flowgraph snapshot writes it):
 //   format: 'flowgraph', version: 1
-//   project: { name, commit, branch, dirty, created, indexed, staleFiles }: staleFiles source files changed after the index was written
+//   project: { name, commit, branch, dirty, created, indexed, staleFiles, unindexedFiles }: staleFiles source files changed after the index was written,
+//     and the build did not compile unindexedFiles source files, so the snapshot has no symbol of them
 //   files, kinds, modules, packages, edgeKinds: lists of strings that the rows below index
 //   symbols: one row for each symbol: [name, kind, file, line, parent, module, external, entry, package]. external: 0 the project, 1 a dependency, 2 the standard library or the SDK
 //   usrs: the compiler identifier of each symbol, in the order of symbols
@@ -500,8 +501,8 @@ const FG = (() => {
       group: v.group || 'file', data: !v.fnOnly, types: !v.fnOnly, ext: true, sys: false, hidden: new Set(), shown: new Set(), open: new Set() });
     $('title').textContent = p.name || 'flowgraph';
     document.title = (p.name || 'snapshot') + ' — flowgraph';
-    $('source').textContent = [name, p.branch, p.commit && p.commit + (p.dirty ? ' + changes' : ''), p.staleFiles ? `index older than  source files` : ''].filter(Boolean).join(' · ');
-    $('source').title = [p.created && 'snapshot made ' + p.created, p.indexed && 'index written ' + p.indexed].filter(Boolean).join('\n');
+    $('source').textContent = [name, p.branch, p.commit && p.commit + (p.dirty ? ' + changes' : ''), p.staleFiles ? `index older than ${p.staleFiles} source files` : ''].filter(Boolean).join(' · ');
+    $('source').title = [p.created && 'snapshot made ' + p.created, p.indexed && 'index written ' + p.indexed, p.unindexedFiles && p.unindexedFiles + ' source files are not in the index: the build did not compile them'].filter(Boolean).join('\n');
     $('kinds').innerHTML = M.edgeKinds.map(k => `<label><input type="checkbox" data-kind="${k}" checked><span style="color:${EDGE_COLOR[k]}">${k}</span></label>`).join(' ');
     $('product').innerHTML = '<option value="">all</option>' + M.products.map(q => `<option value="${esc(q.name)}">${esc(q.name)} · ${esc(q.type)}</option>`).join('');
     $('productbox').style.display = M.products.length ? '' : 'none';
