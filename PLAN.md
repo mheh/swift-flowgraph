@@ -198,3 +198,10 @@ Each part ends with a headless test of the page.
 - Two commits of the C test project, both built the same way: 109 added, 0 removed, 42 bodies changed, for a change of 15 files. With one side built with another define it was 340 bodies.
 - `Changes` has one row for each module of the base, with its functions that have a pair, that call the same, and that the port does not have.
 - Not done: a pair that the port renamed, and a summary for each file.
+
+## Checked before the push (2026-11-25)
+
+- The Linux image builds, and the fixture check passes in it, with the case of an index from another computer and the outline of the C fixture.
+- The exporter for the page is built again from the current sources. On the index of the C test project it writes the same snapshot as the command.
+- In the page, the exporter reads the bodies when the picked folder holds the sources: 11 bodies of the C fixture, and none with the index alone.
+- Not done: `Scripts/build-linux.sh` still passes the include flags from the time of the database library. Nobody tried the build with no flags.
