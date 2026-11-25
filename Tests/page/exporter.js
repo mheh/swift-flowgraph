@@ -17,7 +17,7 @@
     let refused = '';
     try { await FGExporter.run([['notes.txt', new File(['x'], 'notes.txt')]]); } catch (e) { refused = e.message; }
     expect('a folder with no index store is refused', refused.includes('no index store'));
-    console.log(`TIME ${FG.model.N.length} symbols, ${FG.model.entries.length} entry points, ${FG.model.project.name}`);
+    console.log(`TIME ${FG.model.N.length} symbols, ${Object.keys(FG.model.bodies).length} bodies, ${FG.model.entries.length} entry points, ${FG.model.project.name}`);
     console.log('PASS exporter');
   } catch (e) { console.log('FAIL exporter: ' + e.message); }
 })();
