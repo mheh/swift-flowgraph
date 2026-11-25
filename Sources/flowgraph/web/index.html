@@ -47,6 +47,10 @@
   #library .err { color:#e6705a; margin:8px 0; } #library .note { color:var(--accent); margin:8px 0; }
   #library details { margin-top:14px; color:var(--dim); } #library details p { margin:6px 0 6px 14px; }
   button:disabled { opacity:.4; cursor:default; border-color:#3d4350; }
+  .ghint { position:absolute; inset:0; display:none; flex-direction:column; gap:12px; align-items:center; justify-content:center; text-align:center; z-index:4; padding:40px; font-size:14px; }
+  .ghint.on { display:flex; }
+  .ghint .entries { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; max-width:860px; }
+  kbd, .ghint code { border:1px solid #3d4350; border-radius:3px; padding:0 5px; background:#262a33; font:12px ui-monospace, Menlo, monospace; }
   #side { border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:10px 12px; min-height:0; }
   #side h2 { font-size:14px; margin:0 0 2px; word-break:break-all; }
   #side h3 { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); margin:14px 0 4px; }

@@ -87,7 +87,7 @@
     if (!D) {
       headBox.innerHTML = ''; listBox.innerHTML = '';
       detail.innerHTML = `<div class="none"><p><b>Compare two snapshots</b></p><p>The snapshot of the page is the head. Choose the snapshot that it is compared with, for example one of the main branch.</p>`
-        + `<p><button data-choose>Choose the base snapshot…</button></p><p class="dim">The file stays on this computer.</p></div>`;
+        + `<p><button data-choose>Choose the base in the library…</button></p></div>`;
       FG.status('');
       return;
     }
@@ -121,7 +121,7 @@
       headBox = box.querySelector('.hd'); listBox = box.querySelector('.li'); detail = box.querySelector('.de');
       box.onclick = ev => {
         const row = ev.target.closest('.dr');
-        if ('choose' in ev.target.dataset) document.getElementById('basefile').click();
+        if ('choose' in ev.target.dataset) FG.chooseBase();
         else if (row) {
           const id = +row.dataset.id;
           // A symbol that one side does not have needs both sides to be seen.

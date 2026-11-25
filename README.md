@@ -73,6 +73,7 @@ The page keeps each snapshot that you give it in the storage of the browser (Ind
 
 ## The page
 
+- With no root, the graph offers the entry points of the project: one click draws all that an entry point reaches.
 - Search (`/`) picks a root. Shift adds a second root.
 - `callers` and `callees` set the depth on each side, up to `max`.
 - Click a symbol: the panel lists who uses it, and what its body holds in the order of the source, each with file and line.

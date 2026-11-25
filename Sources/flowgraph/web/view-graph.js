@@ -2,7 +2,7 @@
 // The graph view: the scope as a layered drawing, with Cytoscape.js and the ELK layout.
 (() => {
   const { state, esc, short, EDGE_COLOR } = FG;
-  let cy = null, runId = 0, drawnGroup = null, limit = Math.max(20, +FG.params.get('limit') || 300), bar = null;
+  let cy = null, runId = 0, drawnGroup = null, limit = Math.max(20, +FG.params.get('limit') || 300), hint = null;
 
   // The branch of each symbol: the one callee of the root that reaches it, or -1 when several do.
   // With several roots, each root is a branch.
@@ -37,6 +37,18 @@
     node.addClass('picked');
     node.connectedEdges().addClass('lit');
     return node;
+  }
+
+  // What the view says when it has no root to draw from.
+  function start() {
+    const M = FG.model;
+    if (M.merged) return `<b>The two snapshots have no symbol that changed.</b><div class="dim">Set <code>show</code> to <code>all</code>, or find a symbol.</div>`;
+    const entries = M.entries.filter(FG.inProduct);
+    return `<b>Where do you want to start?</b>`
+      + (entries.length ? `<div class="dim">An entry point, with all that it reaches:</div><div class="entries">`
+        + entries.slice(0, 24).map(n => `<button data-entry="${n.id}" title="${esc(n.module)}">${esc(short(n))}<span class="dim"> · ${esc(n.module)}</span></button>`).join('')
+        + `</div>` + (entries.length > 24 ? `<div class="dim">… and ${entries.length - 24} more in the list <code>entry</code></div>` : '') : '')
+      + `<div class="dim">${entries.length ? 'Or find' : 'Find'} a symbol with <kbd>/</kbd>, or see every symbol in the <button data-view="table">Table</button></div>`;
   }
 
   const view = {
@@ -77,6 +89,8 @@
       cy.on('cxttap', 'node', ev => { const id = idOf(ev); if (id != null) FG.hide(id); });
       cy.on('dbltap', 'node', ev => { const id = idOf(ev); if (id != null) FG.setRoot(id, ev.originalEvent.shiftKey); });
       box.addEventListener('contextmenu', ev => ev.preventDefault());
+      hint = document.createElement('div'); hint.className = 'ghint'; box.appendChild(hint);
+      hint.onclick = ev => { const b = ev.target.closest('[data-entry]'); if (b) FG.setEntry(+b.dataset.entry); else if (ev.target.dataset.view) FG.activate(ev.target.dataset.view); };
       view.bar(viewbar);
     },
 
@@ -98,7 +112,8 @@
     update(scope) {
       const { N, E, out, inc, files, edgeKinds } = FG.model;
       cy.resize();
-      if (!scope.order.length) { cy.elements().remove(); FG.status(FG.model.merged ? 'The two snapshots have no symbol that changed.' : `${N.length} symbols, ${E.length} edges. Find a symbol to start.`); return; }
+      hint.classList.toggle('on', !scope.order.length);
+      if (!scope.order.length) { cy.elements().remove(); hint.innerHTML = start(); FG.status(`${N.length.toLocaleString()} symbols, ${E.length.toLocaleString()} edges`); return; }
       const shown = new Set(scope.order.slice(0, limit));
       const group = state.group, groups = new Map(), els = [];
       const owner = group === 'branch' ? branches(shown) : null;

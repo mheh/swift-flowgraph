@@ -306,6 +306,7 @@ const FG = (() => {
     if (snapshot) FGLibrary.hide();
     refresh();
   }
+  const chooseBase = () => FGLibrary.show('Choose the base of the comparison: the button Base of a snapshot.');
   function rebase(narrow) {
     F = baseModel ? FGDiff.merge(H, baseModel, { bodyIn, exitsIn }) : null;
     if (!F) {
@@ -477,7 +478,7 @@ const FG = (() => {
         const entries = M.entries.filter(inProduct);
         if (state.product) html += `<p class="dim">The product ${esc(state.product)} has ${N.filter(inProduct).length} symbols${entries.length ? '' : ' and no marked entry point: pick a function below, or find one'}.</p>`;
         if (entries.length) html += `<h3>Entry points · ${entries.length}</h3>` + entries.map(n => rowHTML(n, esc(n.module)).replace('data-id', 'data-entry')).join('');
-        html += `<h3>Functions with no caller · largest first</h3>` + tops.map(n => rowHTML(n, out[n.id].length + ' edges')).join('');
+        html += `<h3>Functions with no caller · largest first</h3>` + tops.map(n => rowHTML(n, esc(n.module) + ' · ' + out[n.id].length + ' edges')).join('');
       }
     } else {
       const n = N[id];
@@ -583,7 +584,7 @@ const FG = (() => {
       else if (state.selected != null && ev.key === 'e') toggleOpen(state.selected);
     });
     document.addEventListener('mousedown', ev => { if (!ev.target.closest('#searchbox')) $('hits').style.display = 'none'; });
-    $('diffbutton').onclick = () => { if (F) activate('diff'); else FGLibrary.show('Choose the base of the comparison: the button Base of a snapshot.'); };
+    $('diffbutton').onclick = () => { if (F) activate('diff'); else chooseBase(); };
     $('librarybutton').onclick = () => FGLibrary.show();
     $('diffinfo').onclick = ev => { const d = ev.target.dataset.diff; if (d === 'swap') swapDiff(); else if (d === 'off') setBase(null, ''); };
     $('diffinfo').onchange = ev => {
@@ -623,7 +624,7 @@ const FG = (() => {
 
   return { registerView, start, check, load, refresh, status, select, setRoot, setEntry, setProduct, hide, show, toggleOpen, restore,
     state, params, views, esc, short, where, productsOf, inProduct, allowed, EDGE_COLOR, body, exits, isMarked, toggleMark, markedBelow,
-    activate, setBase, setSide, swapDiff,
+    activate, setBase, chooseBase, setSide, swapDiff,
     /** The snapshot of the page as it was read. */ get raw() { return raw; },
     /** The snapshots that are open, each as it was read and with its name: the head, and the base of a diff. */
     get loaded() { return { head: raw && { snapshot: raw, name: H.name }, base: baseRaw && { snapshot: baseRaw, name: baseName } }; },
