@@ -27,7 +27,8 @@ the body outlines (SwiftSyntax), the products (SwiftPM), and the rules for entry
 - The tool only exports. The comparison of two snapshots happens in the browser.
 - For a comparison, export both sides in the same way and on the same platform.
 - The image workflow runs only on a push to `master`, and it publishes one image, `mhehmsoth/swift-flowgraph:swift-6.4`.
-- No build in the browser. The viewer runs in the browser, and the export needs a compiler.
+- No build in the browser. The viewer runs in the browser, and the build that writes the index store needs a compiler.
+  The export itself needs none: see "The exporter in the browser" below.
 
 ## Goal 1: the open work, in order
 
@@ -89,6 +90,7 @@ What is missing, in the order of its weight:
 ### Goal 2: the work
 
 - [x] **1. One symbol for each binary.** Done. The exporter reads the index through its units and no longer through the database of the index reader.
+      Since 2026-11-25 the tool does not link that database at all: the module of a symbol of another module comes from the record that declares it.
       A compilation with no module name gets the name of its binary from the path of its object file. A C function or variable that more than one binary defines has the binary in its key.
       Each binary is a module and a product of the type `binary`. A header that several binaries read is a module with the name of its directory.
       On the trial codebase: 9 binaries, 14 modules of shared headers, 39,886 symbols, 219,128 edges, in about 3 s.
@@ -107,6 +109,48 @@ What is missing, in the order of its weight:
 Checked for Swift: the fixture package gives the same snapshot from the old and from the new exporter, apart from the time. The test project of 2,205 files gives the same products and the same entry points;
 its C symbols have other names and modules where the old reader gave none (a field now leads with its struct, and a header symbol has the module of its header).
 A path with `..` in the index is resolved before the lookup: without this, 73 macros of a header that was included through `../` were read as symbols of a dependency.
+
+## The exporter in the browser: what the trial found (2026-11-25)
+
+The question was whether the page can read an index store itself, so that a user builds with one flag and gives the folder to the page.
+The trial compiled the exporter of this repository to WebAssembly (WASI) and ran it in Node. Nothing of the trial is in the repository.
+
+Measured:
+
+- The index reader of the compiler (five source files of clang, and the support library of LLVM) compiles for WASI.
+  It needs stand-ins for what WASI does not have: lock types, users, signals, processes, and a directory watcher. The reader calls none of them.
+- The exporter compiles with the Swift SDK for WebAssembly, with the reader linked in and not loaded at run time.
+- For the C and C++ trial codebase, the snapshot is the same as the native one apart from the commit, in 5.0 s against 4.3 s native.
+- For the Swift test project, the symbols, the edges, and the 21,439 bodies are the same, in about 16 s against 12 s native.
+- The program is 60 MB, and 20 MB compressed. A first test with only the parser and Foundation had the same size, so the reader adds little.
+
+What the trial changed in the tool, because a number is 32 bits wide there: the hash of a step and the key of a place in a file have a fixed width now.
+The native snapshots did not change.
+
+What does not work there, and is not solved:
+
+- No `git`, so the snapshot has no commit and no branch. The user would have to give them.
+- No `swift package describe`, so a Swift package has no products, and a build directory with a suffix keeps the suffix in the name of its module.
+  A build with no packages is not affected.
+- `--ref` and the search for an index store need a process or the home directory.
+
+Not tested: the program in a browser with a folder that the user picks, the memory that it needs, a store of several hundred MB,
+a store that another version of the compiler wrote, and a store with compressed records (the trial left zlib out).
+
+Decided by the user (2026-11-25): the page gets an exporter for the index store of a C or C++ build only.
+A user builds with `-index-store-path` and gives the folder to the page. A Swift project keeps the command and gives the page the snapshot file.
+So the program in the page needs no Swift parser and no package description. Its size without the parser is not measured yet.
+
+### The page: the work, in order
+
+- [ ] **1. A library of snapshots in the storage of the browser** (IndexedDB): the name, the commit, the date, and the size of each; open and delete.
+- [ ] **2. Head and base from the library**, also from two projects.
+- [ ] **3. A start screen** in place of the empty graph, and a review of the toolbar, the status line, and the empty states.
+- [ ] **4. `core.js` in parts**: storage, model, the state of the comparison, toolbar.
+- [ ] **5. Speed, measured** on a Swift and on a C snapshot: load, first render, scroll of the table, change of the root.
+- [ ] **6. The exporter in the page** for a C or C++ index store, with a folder that the user picks.
+
+Each part ends with a headless test of the page.
 
 ## Goal 3: what is known
 

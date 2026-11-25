@@ -15,7 +15,7 @@ final class Step {
   let text: String
   var flags = 0
   /// A hash of the whole text of the step, when the step has more text than its first line. 0: the text is the whole step.
-  var hash = 0
+  var hash: UInt32 = 0
   var children: [Step] = []
   /// What the step itself uses, with no child: the node and the kind of the edge.
   var refs: [(to: Int, kind: Int)] = []
@@ -47,17 +47,17 @@ struct BodyReader {
   let converter: SourceLocationConverter
   let rules: EntryRules
   /// The calls and the function references of the file by their place, from the index.
-  private var calls: [Int: Int] = [:]
-  private var functionRefs: [Int: Int] = [:]
+  private var calls: [Int64: Int] = [:]
+  private var functionRefs: [Int64: Int] = [:]
   /// Each step with the extent of its source, and the node that owns its outline. The extents are nested or apart.
-  private var extents: [(start: Int, end: Int, owner: Int, step: Step?)] = []
+  private var extents: [(start: Int64, end: Int64, owner: Int, step: Step?)] = []
   private(set) var outlines: [Int: Outline] = [:]
   private var closureNodes = Set<Int>()
 
-  private static func key(_ line: Int, _ column: Int) -> Int { line << 20 | column }
+  private static func key(_ line: Int, _ column: Int) -> Int64 { Int64(line) << 20 | Int64(column) }
   private func start(_ node: some SyntaxProtocol) -> SourceLocation { node.startLocation(converter: converter) }
-  private func key(startOf node: some SyntaxProtocol) -> Int { let l = start(node); return BodyReader.key(l.line, l.column) }
-  private func key(endOf node: some SyntaxProtocol) -> Int { let l = node.endLocation(converter: converter); return BodyReader.key(l.line, l.column) }
+  private func key(startOf node: some SyntaxProtocol) -> Int64 { let l = start(node); return BodyReader.key(l.line, l.column) }
+  private func key(endOf node: some SyntaxProtocol) -> Int64 { let l = node.endLocation(converter: converter); return BodyReader.key(l.line, l.column) }
 
   /// The first line of a node, as the page shows it. When the node has more than that, its whole text goes into the hash of the step that is made next,
   /// so that a change past the first line still makes another step.
@@ -225,7 +225,7 @@ struct BodyReader {
 
   private mutating func made(_ kind: String, _ node: some SyntaxProtocol, _ text: String, owner: Int) -> Step {
     let step = Step(kind, start(node).line, text)
-    step.hash = Int(pending)
+    step.hash = pending
     pending = 0
     extents.append((key(startOf: node), key(endOf: node), owner, step))
     return step
