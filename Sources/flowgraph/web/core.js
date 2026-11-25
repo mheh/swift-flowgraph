@@ -116,10 +116,14 @@ const FG = (() => {
   const state = { side: 'both', diffShow: 'all', marks: [], roots: new Set(), up: 1, down: 2, off: new Set(), selected: null, product: '', group: 'file', data: true, types: true, ext: true, sys: false,
     hidden: new Set(), shown: new Set(), open: new Set() };
 
-  /** @returns {Model} */
-  function decode(s) {
+  /** Throws when the object is not a snapshot that this page reads. */
+  function check(s) {
     if (!s || s.format !== 'flowgraph') throw new Error('This file is not a flowgraph snapshot.');
     if (s.version !== 1) throw new Error(`This page reads version 1 of the snapshot format, and the file has version ${s.version}.`);
+  }
+  /** @returns {Model} */
+  function decode(s) {
+    check(s);
     const N = s.symbols.map((r, i) => ({ id: i, name: r[0] || `(anonymous ${s.kinds[r[1]]})`, kind: s.kinds[r[1]], cls: clsOf(s.kinds[r[1]]), file: r[2], line: r[3], parent: r[4],
       module: s.modules[r[5]], ext: !!r[6], sys: r[6] === 2, entry: !!r[7], pkg: s.packages[r[8]], usr: s.usrs[i] }));
     const E = s.edges.map(r => ({ from: r[0], to: r[1], kind: s.edgeKinds[r[2]], count: r[3], line: r[4] }));
@@ -299,6 +303,7 @@ const FG = (() => {
     baseModel = snapshot ? decode(snapshot) : null;
     if (baseModel) baseModel.name = baseName;
     rebase(true);
+    if (snapshot) FGLibrary.hide();
     refresh();
   }
   function rebase(narrow) {
@@ -533,7 +538,7 @@ const FG = (() => {
     state.marks = marks;
     applyMarks();
     for (const view of views) if (view.mounted && view.reset) view.reset();
-    $('open').classList.remove('on');
+    FGLibrary.hide();
     // A base that was chosen stays: the new snapshot is compared with it.
     if (baseModel) rebase(true);
     refresh();
@@ -543,11 +548,6 @@ const FG = (() => {
       const url = params.get('base');
       fetch(url).then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); }).then(s => setBase(s, url.split('/').pop())).catch(e => status(`${url}: ${e.message}`, true));
     }
-  }
-  async function openFile(file) {
-    $('openerror').textContent = '';
-    try { load(JSON.parse(await file.text()), file.name); }
-    catch (e) { $('open').classList.add('on'); $('openerror').textContent = `${file.name}: ${e.message}`; }
   }
 
   /** Called once, after every view registered. `snapshot` is the snapshot inside the page, or null. */
@@ -583,13 +583,8 @@ const FG = (() => {
       else if (state.selected != null && ev.key === 'e') toggleOpen(state.selected);
     });
     document.addEventListener('mousedown', ev => { if (!ev.target.closest('#searchbox')) $('hits').style.display = 'none'; });
-    $('diffbutton').onclick = () => { if (F) activate('diff'); else $('basefile').click(); };
-    $('basefile').onchange = async () => {
-      const file = $('basefile').files[0];
-      $('basefile').value = '';
-      if (!file) return;
-      try { setBase(JSON.parse(await file.text()), file.name); } catch (e) { status(`${file.name}: ${e.message}`, true); }
-    };
+    $('diffbutton').onclick = () => { if (F) activate('diff'); else FGLibrary.show('Choose the base of the comparison: the button Base of a snapshot.'); };
+    $('librarybutton').onclick = () => FGLibrary.show();
     $('diffinfo').onclick = ev => { const d = ev.target.dataset.diff; if (d === 'swap') swapDiff(); else if (d === 'off') setBase(null, ''); };
     $('diffinfo').onchange = ev => {
       const d = ev.target.dataset.diff;
@@ -613,12 +608,8 @@ const FG = (() => {
       else if (t.dataset.add) setRoot(+t.dataset.add, true);
       else { const r = t.closest('.row') || t.closest('.exit[data-id]'); if (r) select(+r.dataset.id, null); }
     };
-    // A snapshot comes from inside the page, from a file that the user chooses or drops, or from a link when the page is hosted.
-    $('openbutton').onclick = $('openbutton2').onclick = () => $('openfile').click();
-    $('openfile').onchange = () => { if ($('openfile').files[0]) openFile($('openfile').files[0]); $('openfile').value = ''; };
-    document.addEventListener('dragover', ev => { ev.preventDefault(); $('open').classList.add('over'); });
-    document.addEventListener('dragleave', () => $('open').classList.remove('over'));
-    document.addEventListener('drop', ev => { ev.preventDefault(); $('open').classList.remove('over'); if (ev.dataTransfer.files[0]) openFile(ev.dataTransfer.files[0]); });
+    // A snapshot comes from inside the page, from the library, or from a link when the page is hosted.
+    FGLibrary.mount();
     active = views.find(v => v.id === params.get('view')) || views[0];
     for (const v of views) { v.box.classList.toggle('on', v === active); v.tab.classList.toggle('on', v === active); }
     if (snapshot) load(snapshot, '');
@@ -626,14 +617,16 @@ const FG = (() => {
       const url = params.get('snapshot');
       status(`loading ${url}…`);
       fetch(url).then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); }).then(s => load(s, url.split('/').pop()))
-        .catch(e => { status(''); $('open').classList.add('on'); $('openerror').textContent = `${url}: ${e.message}`; });
-    } else $('open').classList.add('on');
+        .catch(e => { status(''); FGLibrary.show(`${url}: ${e.message}`, true); });
+    } else FGLibrary.show();
   }
 
-  return { registerView, start, load, refresh, status, select, setRoot, setEntry, setProduct, hide, show, toggleOpen, restore,
+  return { registerView, start, check, load, refresh, status, select, setRoot, setEntry, setProduct, hide, show, toggleOpen, restore,
     state, params, views, esc, short, where, productsOf, inProduct, allowed, EDGE_COLOR, body, exits, isMarked, toggleMark, markedBelow,
     activate, setBase, setSide, swapDiff,
     /** The snapshot of the page as it was read. */ get raw() { return raw; },
+    /** The snapshots that are open, each as it was read and with its name: the head, and the base of a diff. */
+    get loaded() { return { head: raw && { snapshot: raw, name: H.name }, base: baseRaw && { snapshot: baseRaw, name: baseName } }; },
     /** With a base chosen: the merged model of both snapshots, with the counts of each state. Else null. */ get diff() { return F; },
     /** @returns {?Model} */ get model() { return M; },
     /** @returns {Scope} */ get scope() { return scope; } };

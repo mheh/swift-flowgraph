@@ -12,7 +12,7 @@ The tool has two parts:
     swift build -c release
     .build/release/flowgraph snapshot <project-dir> --out snapshot.json
     .build/release/flowgraph page --out flowgraph.html
-    open flowgraph.html          # then choose snapshot.json, or drop it on the page
+    open flowgraph.html          # then drop snapshot.json on the page, or choose it there
 
 The project must be built first (`swift build`, or a build in Xcode), because the build writes the index.
 The snapshot is as fresh as the index: the tool warns when source files changed after the last build.
@@ -53,12 +53,23 @@ The outline of a body is read from Swift sources only, so the trace of a C funct
 
 | Command | Result |
 |---|---|
-| `flowgraph page` | One HTML file with no data. It asks for a snapshot file. |
+| `flowgraph page` | One HTML file with no data. It starts with the library, which takes snapshot files. |
 | `flowgraph snapshot … --html page.html` or `flowgraph page --snapshot s.json` | One HTML file with the snapshot inside, which opens with a double-click. |
 | `flowgraph site --out dir` | `index.html` and the script files, for any static web host. `index.html?snapshot=<url>` opens the snapshot at a link. |
 
 Each form works with no network access: Cytoscape.js and the ELK layout are part of it.
 A snapshot that you choose or drop is read in the browser, and it is sent nowhere.
+
+## The library
+
+The page keeps each snapshot that you give it in the storage of the browser (IndexedDB), so the next visit has it with no file.
+`Library` lists them with the project, the commit, the date of the export, and the size. A page with no snapshot starts there.
+
+- Drop one file or more on the page, or choose them. One file opens at once when the page has no snapshot.
+- `Open` shows a snapshot. `Base` compares the open snapshot with that one. `Delete` takes it out of the browser.
+- A snapshot from inside the page or from a link is open but not kept, until you press `Keep`.
+- The storage belongs to the address of the page. Two page files on a disk can share it or not, as the browser decides, and a hosted page has its own.
+- Two exports of one commit are two snapshots. The same file a second time takes the place of the first.
 
 ## The page
 
@@ -71,7 +82,7 @@ A snapshot that you choose or drop is read in the browser, and it is sent nowher
 - Each row of the panel has a switch: `−` hides a shown symbol, `+` shows one that no depth reaches.
 - `e` or "Expand neighbours" shows every caller, callee, and use of one symbol, whatever the depth.
 - `limit` caps the drawn symbols of the graph, nearest to the root first. The status line says how many more are reachable.
-- `Open…` loads another snapshot.
+- `Library` opens another snapshot.
 - A link can set the view: `page.html?group=none&down=3&data=0#Type.member`. `animate=0` turns the moving layout off, and `view=<id>` picks the view.
 
 ## The table
@@ -125,7 +136,8 @@ The tool only exports. The page compares.
     flowgraph snapshot . --out head.json --html head.html
     flowgraph snapshot . --ref main --out base.json
 
-Open `head.html`, press `Diff…`, and choose `base.json`. The snapshot of the page is the head, and the file that you choose is the base. Both stay on this computer.
+Open `head.html`, press `Diff…`, drop `base.json` on the library, and press its `Base`. The open snapshot is the head. Both stay on this computer.
+The two can be of two projects: the page then matches what has the same identity in both, and the rest is added or removed.
 
 `--ref` checks the branch or the commit out in a worktree in the cache directory of the tool, builds it there with `swift build` (or the command of `--build`), and takes the snapshot of that copy. Your working directory does not change. The worktree stays, so the next build of the same ref is short.
 
@@ -266,6 +278,8 @@ The viewer is `Sources/flowgraph/web`:
 | `view-table.js` | The table view. |
 | `view-trace.js` | The trace view. |
 | `diff.js` | The comparison of two snapshots: the merged model that every view reads. |
+| `store.js` | The snapshots that the browser keeps. |
+| `library.js` | The list of those snapshots, where one is opened or made the base. |
 | `view-changes.js` | The summary of a diff. |
 
 A view is one file that calls `FG.registerView`, and one `<script src>` line in `index.html` before the `FG.start` line:
