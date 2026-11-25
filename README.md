@@ -174,7 +174,20 @@ The tool only exports. The page compares.
     flowgraph snapshot . --ref main --out base.json
 
 Open `head.html`, press `Diff…`, drop `base.json` on the library, and press its `Base`. The open snapshot is the head. Both stay on this computer.
-The two can be of two projects: the page then matches what has the same identity in both, and the rest is added or removed.
+Build both sides the same way: the same platform, the same kind of build, and the same defines. A define that only one build has makes each `#if` arm of it a change.
+
+### Two projects, as a project and its port
+
+When the two snapshots share less than half of their identities, the page takes them for two projects, and says so in `Changes`. This is how a C project is compared with its port to Swift: make the port the head and the C project the base.
+
+- A symbol of one is matched with the symbol of the other that has its name and is the same kind of thing: a function, a type, or data. `Type.name` is tried first, then the last part of the name for a function.
+- When several symbols have the name, the modules decide: each module of the head goes with the module of the base that most of its pairs are in.
+- A function that several binaries of the base compile counts once.
+- `only in the base` is what the port does not have yet. `only in the head` is what the port added.
+- `calls differ` is a pair that does not call the same functions, of the functions that have a pair. Reads and writes do not count, because each language reaches its data in its own way.
+- The trace of a pair shows both bodies, the base as removed steps and the head as added steps. No text is the same across two languages.
+
+The match is by name alone, so a function that the port renamed is in both lists, once as missing and once as added.
 
 `--ref` checks the branch or the commit out in a worktree in the cache directory of the tool, builds it there with `swift build` (or the command of `--build`), and takes the snapshot of that copy. Your working directory does not change. The worktree stays, so the next build of the same ref is short.
 
@@ -318,6 +331,7 @@ The viewer is `Sources/flowgraph/web`:
 | `toolbar.js` | The search and the controls above the views. |
 | `panel.js` | The side panel. |
 | `diff.js` | The comparison of two snapshots: the merged model that every view reads. |
+| `across.js` | The match by name of two snapshots of two projects. |
 | `store.js` | The snapshots that the browser keeps. |
 | `library.js` | The list of those snapshots, where one is opened or made the base. |
 | `exporter.js`, `exporter-worker.js` | The snapshot from an index store: the worker runs `exporter.wasm` on the files of the picked folder. |

@@ -27,7 +27,7 @@
     const { N } = FG.model, byKind = {};
     for (const r of step.refs) (byKind[r.kind] = byKind[r.kind] || []).push(r.to);
     let html = '';
-    const mark = id => N[id].diff && !N[id].ext ? `<i class="dst d-${N[id].diff}" title="${FGDiff.LABEL[N[id].diff]}">${FGDiff.SIGN[N[id].diff]}</i> ` : '';
+    const mark = id => N[id].diff && !N[id].ext ? `<i class="dst d-${N[id].diff}" title="${FG.diff.labels[N[id].diff]}">${FGDiff.SIGN[N[id].diff]}</i> ` : '';
     for (const id of byKind.calls || []) {
       if (N[id].sys && !FG.isMarked(id) && inText(N[id].name)) continue;
       const n = N[id], can = hasBody(id), key = path + '>' + id;
@@ -49,7 +49,7 @@
 
   const indent = depth => `style="padding-left:${depth * 18}px"`;
   const effectsOf = b => `${b.async ? ' · async' : ''}${b.throws ? ' · throws' : ''}`;
-  const badge = n => n.diff ? `<span class="dst d-${n.diff}">${FGDiff.LABEL[n.diff]}</span>` : '';
+  const badge = n => n.diff ? `<span class="dst d-${n.diff}">${FG.diff.labels[n.diff]}</span>` : '';
 
   const keyword = s => {
     if (s.kind === 'stmt') return '';

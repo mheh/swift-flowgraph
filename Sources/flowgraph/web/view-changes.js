@@ -3,10 +3,10 @@
 // The comparison itself is in diff.js, and every view shows it. A symbol that is chosen here opens in the trace.
 (() => {
   const { esc, state } = FG;
-  const { LABEL, SIGN, ORDER } = FGDiff;
+  const { SIGN, ORDER } = FGDiff;
   let box, listBox, detail, headBox, filter = '';
   const shownStates = new Set(['added', 'removed', 'signature', 'body']);
-  const chip = s => `<span class="dst d-${s}">${SIGN[s]} ${LABEL[s]}</span>`;
+  const chip = s => `<span class="dst d-${s}">${SIGN[s]} ${FG.diff.labels[s]}</span>`;
 
   // --- the marks, in one of the two snapshots
   function markedSet(model) {
@@ -32,7 +32,8 @@
   function renderHead(D) {
     const name = m => esc([m.name, m.project.branch, m.project.commit].filter(Boolean).join(' · ') || 'snapshot');
     let html = `<span class="dim">${name(D.base)} → ${name(D.head)}</span> `
-      + ORDER.map(s => `<label class="dst d-${s}${shownStates.has(s) ? '' : ' off'}"><input type="checkbox" data-state="${s}"${shownStates.has(s) ? ' checked' : ''}>${SIGN[s]} ${D.counts[s]} ${LABEL[s]}</label>`).join(' ');
+      + (D.across ? `<span class="dst" title="The two snapshots share few identities, so they are of two projects. A symbol of one is matched with the symbol of the other that has its name. A pair differs when the two do not call the same functions.">two projects · ${D.named.size} pairs by name</span> ` : '')
+      + ORDER.map(s => `<label class="dst d-${s}${shownStates.has(s) ? '' : ' off'}"><input type="checkbox" data-state="${s}"${shownStates.has(s) ? ' checked' : ''}>${SIGN[s]} ${D.counts[s]} ${FG.diff.labels[s]}</label>`).join(' ');
     if (state.marks.length) {
       const before = markedSites(D.base, markedSet(D.base)), after = markedSites(D.head, markedSet(D.head));
       html += ` <span class="dst d-mark" title="The sites that use what is marked for replacement: in the base, and in the head.">▣ ${after} of ${before} marked sites left</span>`;
@@ -49,7 +50,7 @@
       const rows = D.N.filter(n => n.diff === s && ok(n)).sort((a, b) => (a.module + a.name).localeCompare(b.module + b.name));
       if (!rows.length) continue;
       total += rows.length;
-      html += `<h3>${LABEL[s]} · ${rows.length}</h3>` + rows.slice(0, 1500).map(n =>
+      html += `<h3>${FG.diff.labels[s]} · ${rows.length}</h3>` + rows.slice(0, 1500).map(n =>
         `<div class="dr${state.selected === n.id ? ' on' : ''}" data-id="${n.id}" title="${esc(n.name)}"><span class="dst d-${s}">${SIGN[s]}</span>`
         + `<span class="nm">${n.entry ? '⏵ ' : ''}${esc(FG.short(n))}${s === 'signature' && D.bodyToo.has(n.id) ? ' <i>+ body</i>' : ''}</span><span class="dim">${esc(n.module || '')}</span></div>`).join('')
         + (rows.length > 1500 ? `<div class="dim">… ${rows.length - 1500} more: filter the list</div>` : '');

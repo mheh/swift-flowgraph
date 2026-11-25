@@ -8,6 +8,8 @@
 //                         'body'       the same symbol, and its body or what it uses is not the same. A line that only moved is no change
 //                         'affected'   it is the same, and it reaches a symbol that is not
 //                         ''           the same
+//   Of two projects (`across`), the symbols are matched by name: 'removed' is then what only the base has, 'added' what only the head has,
+//   and 'body' a pair that does not call the same functions.
 //   an edge has `diff`:   'added', 'removed', or ''. `was` is its count of sites in the base, when that is another count
 //   a step has `diff`:    '+' only the head has it, '-' only the base has it, '~' both have it and it changed (`was` holds the base), '' the same
 //   a way out has `diff`: '+', '-', or ''
@@ -84,6 +86,14 @@ const FGDiff = (() => {
       const other = looseBase.get(key);
       if (ids.length === 1 && other && other.length === 1) { baseOf.set(ids[0], other[0]); mid.set(other[0], ids[0]); signature.add(ids[0]); }
     }
+    // Two snapshots that share few identities are of two projects, as a project and its port. Their symbols are then matched by name.
+    const own = H.N.filter(n => !n.ext).length, named = new Set();
+    const across = baseOf.size < own / 2;
+    if (across) {
+      const found = FGAcross.pairs(H, B, baseOf, mid);
+      for (const [h, b] of found.pairs) { baseOf.set(h.id, b.id); mid.set(b.id, h.id); named.add(h.id); }
+      for (const [copy, b] of found.copies) mid.set(copy.id, mid.get(b.id));
+    }
     // The symbols that only the base has come after the symbols of the head.
     const N = H.N.map(n => ({ ...n, diff: '' })), fileOffset = H.files.length;
     const gone = B.N.filter(n => !mid.has(n.id));
@@ -92,6 +102,16 @@ const FGDiff = (() => {
 
     // Both sides name a symbol by its merged number, so a caller of a function with a new signature does not count as changed by that alone.
     const same = id => id, toMerged = id => mid.get(id);
+    // Across two projects no text is the same, and each language reads its data in its own way. A pair is the same when both sides call the same functions, of those that both sides have.
+    const shared = id => id < n0 && baseOf.has(id);
+    const usePrint = (model, id, key) => {
+      const calls = new Set();
+      for (const e of model.out[id]) {
+        const to = key(e.to);
+        if (e.kind === 'calls' && shared(to) && !N[to].ext) calls.add(to);
+      }
+      return [...calls].sort().join(' ');
+    };
     const print = (model, id, key) => {
       const b = FGModel.bodyIn(model, id);
       if (!b) return model.out[id].map(e => `${e.kind} ${key(e.to)} ${e.count}`).sort().join('\n');
@@ -105,7 +125,8 @@ const FGDiff = (() => {
       const b = baseOf.get(n.id);
       // A symbol of another module has no state of its own. One that only one side uses is drawn as added or removed.
       if (n.ext) { if (b == null) N[n.id].diff = 'added'; continue; }
-      const changed = b != null && print(H, n.id, same) !== print(B, b, toMerged);
+      const printed = named.has(n.id) ? usePrint : print;
+      const changed = b != null && printed(H, n.id, same) !== printed(B, b, toMerged);
       if (b == null) states.set(n.id, 'added');
       else if (signature.has(n.id)) { states.set(n.id, 'signature'); if (changed) bodyToo.add(n.id); }
       else if (changed) states.set(n.id, 'body');
@@ -136,7 +157,7 @@ const FGDiff = (() => {
     const decl = { ...H.decl }, doc = { ...H.doc };
     for (const n of gone) { if (B.decl[n.id]) decl[mid.get(n.id)] = B.decl[n.id]; if (B.doc[n.id]) doc[mid.get(n.id)] = B.doc[n.id]; }
     const entries = N.filter(n => n.entry).sort((a, b) => (a.module + a.name).localeCompare(b.module + b.name));
-    return { ...H, files: H.files.concat(B.files), N, E, kids, decl, doc, entries, merged: true, head: H, base: B, baseOf, mid, headCount: n0, counts, bodyToo,
+    return { ...H, files: H.files.concat(B.files), N, E, kids, decl, doc, entries, merged: true, head: H, base: B, baseOf, mid, headCount: n0, counts, bodyToo, across, named, labels: across ? ACROSS_LABEL : LABEL,
       bodyCache: new Map(), exitCache: new Map() };
   }
 
@@ -226,7 +247,8 @@ const FGDiff = (() => {
   }
 
   const LABEL = { added: 'added', removed: 'removed', signature: 'signature changed', body: 'body changed', affected: 'affected' };
+  const ACROSS_LABEL = { ...LABEL, added: 'only in the head', removed: 'only in the base', body: 'calls differ' };
   const SIGN = { added: '+', removed: '−', signature: '≠', body: '~', affected: '·' };
   const ORDER = ['added', 'removed', 'signature', 'body', 'affected'];
-  return { merge, view, words, LABEL, SIGN, ORDER };
+  return { merge, view, words, SIGN, ORDER };
 })();

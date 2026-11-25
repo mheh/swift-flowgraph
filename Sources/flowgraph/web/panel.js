@@ -50,7 +50,7 @@ const FGPanel = (() => {
       }
     } else {
       const n = N[id];
-      html += `<h3>${esc(n.kind)}${n.diff ? ` · <span class="dst d-${n.diff}">${FGDiff.LABEL[n.diff]}</span>` : ''}</h3><h2>${esc(n.name)}</h2><div class="dim">${esc(where(n))}</div>`;
+      html += `<h3>${esc(n.kind)}${n.diff ? ` · <span class="dst d-${n.diff}">${FG.diff.labels[n.diff]}</span>` : ''}</h3><h2>${esc(n.name)}</h2><div class="dim">${esc(where(n))}</div>`;
       if (FG.model.decl[id]) html += `<pre>${esc(FG.model.decl[id])}</pre>`;
       if (FG.model.doc[id]) html += `<div>${esc(FG.model.doc[id])}</div>`;
       html += `<div class="actions"><button data-root="${id}">Make root</button><button data-add="${id}">Add as root</button>`
