@@ -80,6 +80,25 @@ The page keeps each snapshot that you give it in the storage of the browser (Ind
 - The storage belongs to the address of the page. Two page files on a disk can share it or not, as the browser decides, and a hosted page has its own.
 - Two exports of one commit are two snapshots. The same file a second time takes the place of the first.
 
+### A snapshot from an index store, in the page
+
+A hosted page can make the snapshot of a C or C++ project itself, so a person who has the build needs no tool:
+
+1. Build the project with `-index-store-path <dir>` (see "A C or C++ project").
+2. In the library, press "choose the index store of a build" and pick that directory, or a directory that holds it and the sources.
+3. The page reads the files, makes the snapshot, opens it, and keeps it. Nothing leaves the computer.
+
+With the sources in the picked directory, the snapshot is the one that the command makes with `--from-index`. With the index alone, an exported function is no entry point.
+A Swift project needs the command: the page has no Swift parser, so it reads no bodies, and it does not know the products of a package.
+
+The page offers this when its folder has `exporter.wasm`, which is the exporter as a WebAssembly program of about 54 MB (15 MB with Brotli):
+
+    Wasm/build.sh <toolchain-bin> <sdk-bundle> <llvm-project> <work-dir> exporter.wasm
+    flowgraph site --exporter exporter.wasm --out site
+
+The script needs a swift.org toolchain, the Swift SDK for WebAssembly of the same release, a checkout of `swiftlang/llvm-project` of that release, and `cmake`.
+It compiles the index reader of clang and the part of LLVM's support library that the reader needs, and links them into the exporter. The page opened from one file has no exporter.
+
 ## The page
 
 - With no root, the graph offers the entry points of the project: one click draws all that an entry point reaches.
@@ -293,6 +312,8 @@ The viewer is `Sources/flowgraph/web`:
 | `diff.js` | The comparison of two snapshots: the merged model that every view reads. |
 | `store.js` | The snapshots that the browser keeps. |
 | `library.js` | The list of those snapshots, where one is opened or made the base. |
+| `exporter.js`, `exporter-worker.js` | The snapshot from an index store: the worker runs `exporter.wasm` on the files of the picked folder. |
+| `wasi.js` | What a WebAssembly program for WASI asks of its system, on files in memory. |
 | `view-changes.js` | The summary of a diff. |
 
 A view is one file that calls `FG.registerView`, and one `<script src>` line in `index.html` before the `FG.start` line:

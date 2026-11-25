@@ -21,7 +21,7 @@ func main() async throws {
     print(out)
   case .site:
     let out = options.out ?? "flowgraph-site"
-    try Page().site(at: out)
+    try Page().site(at: out, exporter: options.exporter)
     print(out)
   case .listEntries:
     let (packages, checkouts) = readPackages(project: options.project, withCheckouts: options.checkouts)

@@ -2,7 +2,7 @@
 // The library: the snapshots that the browser keeps, and the ones that are open. It is the start of the page, and where the head and the base of a diff are chosen.
 const FGLibrary = (() => {
   const { esc } = FG;
-  let box, kept = [], rows = [], note = '', warn = false;
+  let box, kept = [], rows = [], note = '', warn = false, canExport = false;
 
   const size = bytes => bytes >= 1e6 ? (bytes / 1e6).toFixed(1) + ' MB' : Math.ceil(bytes / 1e3) + ' KB';
   const idOf = open => open ? FGStore.idOf(open.snapshot) : null;
@@ -26,7 +26,8 @@ const FGLibrary = (() => {
       + `<div class="dim">${kept.length ? `This browser keeps ${kept.length}, with ${size(total)}. ` : ''}A snapshot stays on this computer.</div>`
       + (note ? `<div class="${warn ? 'err' : 'note'}">${esc(note)}</div>` : '')
       + (rows.length ? `<div class="lrow lhead"><span>project</span><span>commit</span><span>made</span><span class="n">symbols</span><span class="n">edges</span><span class="n">size</span><span></span></div>` + rows.map(row).join('') : '')
-      + `<div class="add">Drop snapshot files here, or <button data-act="choose">choose files</button>.</div>`
+      + `<div class="add">Drop snapshot files here, or <button data-act="choose">choose files</button>.`
+      + (canExport ? ` Or <button data-act="index" title="The folder of -index-store-path, or the project folder that holds it and the sources. Nothing leaves this computer.">choose the index store of a build</button>, and the page makes the snapshot.` : '') + `</div>`
       + `<details${rows.length ? '' : ' open'}><summary>How to make a snapshot</summary>`
       + `<p>A Swift package: <code>swift build</code>, then <code>flowgraph snapshot &lt;project-dir&gt; --out snapshot.json</code></p>`
       + `<p>A C or C++ project: build it with the compiler flag <code>-index-store-path build/idx</code>, then <code>flowgraph snapshot . --sources src --index-store build/idx --out snapshot.json</code></p>`
@@ -57,6 +58,7 @@ const FGLibrary = (() => {
   async function act(name, e) {
     if (name === 'close') return hide();
     if (name === 'choose') return document.getElementById('addfile').click();
+    if (name === 'index') return document.getElementById('addindex').click();
     try {
       if (name === 'delete') await FGStore.remove(e.id);
       else {
@@ -87,16 +89,32 @@ const FGLibrary = (() => {
     } else await show(errors.join(' · '), true);
   }
 
+  /** Makes a snapshot from the files of an index store, each with its path below the folder that holds them. */
+  async function addIndex(picked, name) {
+    await show(`Reading the index of ${name}: ${picked.length.toLocaleString()} files…`);
+    try {
+      const text = await FGExporter.run(picked);
+      await add([{ name: name + ' (index)', text: async () => text }]);
+    } catch (e) { show(`${name}: ${e.message}`, true); }
+  }
+
   function mount() {
     box = document.getElementById('library');
     const input = document.getElementById('addfile');
     box.onclick = ev => { const b = ev.target.closest('[data-act]'); if (b) act(b.dataset.act, rows[+b.dataset.row]); };
     input.onchange = () => { const files = [...input.files]; input.value = ''; add(files); };
+    const folder = document.getElementById('addindex');
+    folder.onchange = () => {
+      const files = [...folder.files];
+      folder.value = '';
+      if (files.length) addIndex(files.map(f => [f.webkitRelativePath.split('/').slice(1).join('/'), f]), files[0].webkitRelativePath.split('/')[0]);
+    };
+    FGExporter.available().then(ok => { canExport = ok; if (ok && box.classList.contains('on')) render(); });
     document.addEventListener('dragover', ev => { ev.preventDefault(); box.classList.add('over'); });
     document.addEventListener('dragleave', () => box.classList.remove('over'));
     document.addEventListener('drop', ev => { ev.preventDefault(); box.classList.remove('over'); if (ev.dataTransfer.files.length) add([...ev.dataTransfer.files]); });
     document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && box.classList.contains('on')) hide(); });
   }
 
-  return { mount, show, hide, add };
+  return { mount, show, hide, add, addIndex };
 })();

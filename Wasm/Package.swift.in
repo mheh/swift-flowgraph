@@ -1,0 +1,23 @@
+// swift-tools-version:6.0
+import PackageDescription
+
+let package = Package(
+  name: "exporter",
+  targets: [
+    .target(name: "IndexStoreCAPI"),
+    .target(
+      name: "IndexStore", dependencies: ["IndexStoreCAPI"],
+      swiftSettings: [
+        .swiftLanguageMode(.v6), .enableUpcomingFeature("ExistentialAny"), .enableUpcomingFeature("InternalImportsByDefault"),
+        .enableUpcomingFeature("MemberImportVisibility"), .enableUpcomingFeature("InferIsolatedConformances"),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"), .enableExperimentalFeature("Lifetimes"),
+      ]),
+    .executableTarget(
+      name: "flowgraph", dependencies: ["IndexStore"],
+      swiftSettings: [.swiftLanguageMode(.v5)],
+      linkerSettings: [.unsafeFlags([
+        "-L@LIB@/lib", "-L@LIB@/llvm/lib", "-lIndexReader", "-lSupportPart", "-lLLVMDemangle",
+        "-lwasi-emulated-signal", "-lwasi-emulated-mman", "-lwasi-emulated-process-clocks", "-lwasi-emulated-getpid", "-lc++", "-lc++abi",
+      ])]),
+  ]
+)

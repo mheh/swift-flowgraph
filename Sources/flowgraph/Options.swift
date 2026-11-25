@@ -21,6 +21,7 @@ struct Options {
   var out: String?
   var html: String?
   var snapshot: String?
+  var exporter: String?
   var title: String?
   var ref: String?
   var build = "swift build"
@@ -29,7 +30,8 @@ struct Options {
     usage:
       flowgraph snapshot [project-dir] [options]   Write the snapshot of a project: its symbols and edges, as JSON.
       flowgraph page [--snapshot <file>]           Write the viewer as one HTML file, empty or with a snapshot inside.
-      flowgraph site                               Write the viewer as a folder of static files, for a web host.
+      flowgraph site [--exporter <file.wasm>]      Write the viewer as a folder of static files, for a web host.
+                                                   With the exporter of Wasm/build.sh, the page reads an index store itself.
       flowgraph list entries [project-dir]         Print the entry points that the sources mark.
       flowgraph list products [project-dir]        Print the products of the package and of its checkouts.
 
@@ -90,6 +92,7 @@ struct Options {
       case "--out": out = try value(a)
       case "--html": html = try value(a)
       case "--snapshot": snapshot = try value(a)
+      case "--exporter": exporter = try value(a)
       case "--cone": cone = true
       case "--no-external": external = false
       case "--no-bodies": bodies = false

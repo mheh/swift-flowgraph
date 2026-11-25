@@ -119,6 +119,7 @@ func readGraph(_ options: Options, checkoutDirectories: [String], targets: Set<S
   // The bodies are read before the graph is folded, because a closure that goes to another module becomes a node.
   let rules = try EntryRules(project: options.project)
   var early: [Int: Outline] = [:]
+  #if canImport(SwiftParser)
   if options.bodies {
     for path in files where path.hasSuffix(".swift") {
       let shown = path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
@@ -126,6 +127,7 @@ func readGraph(_ options: Options, checkoutDirectories: [String], targets: Set<S
       early.merge(BodyReader.read(path: here(path), file: file, shown: shown, rules: rules, into: &graph)) { old, _ in old }
     }
   }
+  #endif
   graph.finish(keepExternal: options.external) { rules.allows(module: $0.module, name: $0.name) }
   guard !graph.nodes.isEmpty else {
     throw Failure("the index has no symbol for the \(files.count) source files under \(scanned.joined(separator: ", ")). Is the index of this project?")

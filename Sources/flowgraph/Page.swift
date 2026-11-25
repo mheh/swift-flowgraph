@@ -28,13 +28,19 @@ struct Page {
   }
 
   /// The page as a folder of static files, for a web host. It opens a snapshot that the user chooses, or the one that `?snapshot=<url>` names.
-  func site(at directory: String) throws {
+  /// With `exporter`, the program that Wasm/build.sh makes, the page also makes a snapshot from an index store.
+  func site(at directory: String, exporter: String?) throws {
     let fm = FileManager.default
     try fm.createDirectory(atPath: directory, withIntermediateDirectories: true)
     for name in try fm.contentsOfDirectory(atPath: web.path) {
       let target = URL(fileURLWithPath: directory).appendingPathComponent(name)
       if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
       try fm.copyItem(at: web.appendingPathComponent(name), to: target)
+    }
+    if let exporter {
+      let target = directory + "/exporter.wasm"
+      if fm.fileExists(atPath: target) { try fm.removeItem(atPath: target) }
+      try fm.copyItem(atPath: exporter, toPath: target)
     }
   }
 }

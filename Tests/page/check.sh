@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs each test of this directory on the page, in headless Chrome.
 # Usage: check.sh <flowgraph> <head.json> <base.json> [test ...]
-# The two snapshots are of one project at two commits. The test speed is not in the default set: it prints times for head.json. It needs node, python3, and Google Chrome.
+# The two snapshots are of one project at two commits. Two tests are not in the default set: speed prints times for head.json,
+# and exporter needs EXPORTER, the program of Wasm/build.sh, and INDEX, the index store of a C build. It needs node, python3, and Google Chrome.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 flowgraph=$1; head=$2; base=$3; shift 3
@@ -9,7 +10,11 @@ flowgraph=$1; head=$2; base=$3; shift 3
 site=$(mktemp -d /tmp/flowgraph-page.XXXXXX)
 port=8793
 
-"$flowgraph" site --out "$site" >/dev/null
+"$flowgraph" site --out "$site" ${EXPORTER:+--exporter "$EXPORTER"} >/dev/null
+if [ -n "${INDEX:-}" ]; then
+  cp -R "$INDEX" "$site/index"
+  (cd "$site" && find index -type f > index.txt)
+fi
 cp "$head" "$site/head.json"
 cp "$base" "$site/base.json"
 python3 -m http.server "$port" --bind 127.0.0.1 --directory "$site" >/dev/null 2>&1 &

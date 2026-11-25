@@ -166,7 +166,12 @@ So the program in the page needs no Swift parser and no package description. Its
       | Choose a base, to the drawn diff | 0.39 s | 0.22 s |
 
       No step needs a change. The scope of 9,766 symbols takes 0.03 s; the rest of a root change is the graph library, which draws 300 symbols at most.
-- [ ] **6. The exporter in the page** for a C or C++ index store, with a folder that the user picks.
+- [x] **6. The exporter in the page** for a C or C++ index store, with a folder that the user picks.
+      `Wasm/build.sh` builds the exporter for WASI from the sources of the tool, without the Swift parser and without the commands that run a process: 54 MB, 19 MB with gzip, 15 MB with Brotli.
+      `flowgraph site --exporter` puts it in the folder of the page. `wasi.js` gives the program the files of the picked folder from memory, in a worker.
+      The command has `--from-index` for the same work on a disk: the files come from the index, and the root of the project from their paths.
+      Measured in headless Chrome with `Tests/page/check.sh ... exporter`: an index of 2,377 files (44 MB) becomes an open snapshot of 43,000 symbols in 5.8 s. With `--sources`, the program gives the same snapshot as the command.
+      Not tested: the folder chooser in a browser window (the test hands the files to `FGLibrary.addIndex`), browsers other than Chrome, an index of several hundred MB, an index with compressed records.
 
 Each part ends with a headless test of the page.
 
