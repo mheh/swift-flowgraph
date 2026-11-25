@@ -43,10 +43,16 @@ the body outlines (SwiftSyntax), the products (SwiftPM), and the rules for entry
       One cause is closed by reading the code: the handler for a failed layout no longer writes over the status of a layout that ended. Not confirmed.
 - [x] **F. The speed of the merge.** Measured with a real clock in a headless browser: about 0.45 s for 55,000 symbols, and 0.12 s for 21,000.
       A change of the side takes about 20 ms. No worker is necessary.
-- [ ] **G. Noise of C constants.** Narrowed, not solved. Each build tree gives the same snapshot at each export.
-      Two build trees of commits with the same C sources differ in three macro definitions. Each of the three names is defined in two headers, and nothing uses the definition that differs.
-      Both trees hold the same record files for the header, so the difference is in which definition the index gives for the file. The cause in the index is not found.
-      A possible cure is in the comparison: do not count an added or a removed macro that has no edge. It hides the true add of an unused macro, so it needs the word of the user.
+- [x] **G. Noise of C constants.** The cause is found, and README "Limits" holds it. No cure is in the tool.
+      The index holds one record of a header for each context that compiled it: each C file that includes it, and the build of its module (`.pcm`).
+      The records differ. In the trial, the record of a header from the module build had 0 macros, and the record from a C file had the macro.
+      `symbolOccurrences(inFilePath:)` of the index reader gives the record of the first unit that holds the file, in the order of the unit codes of its database.
+      The name of the `.pcm` unit differed between the two build trees, and all other unit names were the same. So the `.pcm` unit stood at another place, and another record came first.
+      Measured: the same 75 units for the header in both trees, the C unit at place 74 in one and at place 1 in the other, 112 against 116 occurrences.
+      Six fresh databases of one store gave the same result each time, so the order is fixed for one build.
+      Not measured: that the unit code is a hash of the unit name. This is read from the source of the index reader.
+      Possible cures, none decided: read each record of a header through the units and join them (the Swift API of the reader has no call for this, so it needs the C API or a fork);
+      or leave out, in the comparison, an added or removed C symbol with no edge (it hides the true add of an unused macro).
 
 Each of A to G ends with a build, the fixture check, and a headless test of the page where the page changed.
 

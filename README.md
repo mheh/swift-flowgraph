@@ -260,5 +260,9 @@ The head of `core.js` documents the snapshot format and the types.
 
 - The trace is for Swift. A C function has edges, and no outline.
 - Local variables and parameters are not nodes.
+- Two builds of the same C header can give different symbols, so a comparison can show a macro or a declaration of a header as added or removed when the header did not change.
+  The index holds one record of a header for each context that compiled it: each C file that includes it, and the build of its module for Swift. The records are not the same: one can hold a macro that the other does not.
+  The index reader gives the record of one of these contexts, by the order of an internal number of each context. The name of a module build changes from one build directory to the next, and so can the record.
+  Such a symbol is in the list with the state added or removed, and it has no user. Each export of one build gives the same snapshot.
 - A use inside a closure belongs to the function that holds the closure, unless the closure is an entry point.
 - A callee of a dependency has no body in the snapshot, so a `try` of it counts as a place where an error can leave.
