@@ -14,6 +14,7 @@ struct Options {
   var sources: [String] = []
   var external = true
   var bodies = true
+  var fromIndex = false
   var cone = false
   var up: String?
   var down: String?
@@ -52,6 +53,8 @@ struct Options {
       --checkouts            Also read the sources of the dependencies in .build/checkouts.
       --no-external          Drop the symbols of other modules (the SDK, dependencies). Default: they are leaf nodes.
       --no-bodies            Do not read the bodies of the functions. The page then has no trace.
+      --from-index           Take the source files from the index and not from the disk, for an index that another computer built.
+                             The project directory gives the text of the lines, when it holds the sources.
       --index-store <path>   Index store. Default: found under .build or Xcode DerivedData.
       --libindexstore <path> libIndexStore.dylib or .so. Default: from the toolchain of the swift in use.
     """
@@ -90,6 +93,7 @@ struct Options {
       case "--cone": cone = true
       case "--no-external": external = false
       case "--no-bodies": bodies = false
+      case "--from-index": fromIndex = true
       case "--sources": sources.append(try value(a))
       case "--index-store": indexStore = try value(a)
       case "--symbol-graphs": symbolGraphs = try value(a)

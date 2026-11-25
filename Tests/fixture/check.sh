@@ -45,4 +45,9 @@ grep -q 'game.GetAPI' "$work/c-entries.txt" && grep -q 'host.main' "$work/c-entr
 grep -q '"functionField"' "$work/c.json" || fail "a field that the code calls is no functionField"
 grep -q 'API_UNUSED' "$work/c.json" && fail "a macro that nothing uses is in the snapshot"
 
+# The same index, with the sources at another path.
+mkdir "$work/moved" && cp -R "$work/src" "$work/moved/"
+run "$image" list entries moved --from-index --index-store cbuild/idx > "$work/moved-entries.txt"
+cmp -s "$work/c-entries.txt" "$work/moved-entries.txt" || fail "--from-index gives other entry points: $(cat "$work/moved-entries.txt")"
+
 echo "ok: $(grep -c . "$work/entries.txt") entry points, snapshot of $(wc -c < "$work/snapshot.json") bytes"

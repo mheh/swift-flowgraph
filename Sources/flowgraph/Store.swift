@@ -133,6 +133,21 @@ final class RawStore {
     }
   }
 
+  /// Each source file that the index has a record of and that is no file of the system.
+  func sourceFiles() -> [String] {
+    var files = Set<String>()
+    store.unitNames(sorted: true).forEach { name in
+      guard let unit = try? store.unit(named: name.string) else { return .continue }
+      unit.dependencies.forEach { dep in
+        let url = URL(fileURLWithPath: dep.filePath.string)
+        if dep.kind == .record, !dep.isSystem, sourceExtensions.contains(url.pathExtension) { files.insert(url.standardized.path) }
+        return .continue
+      }
+      return .continue
+    }
+    return files.sorted()
+  }
+
   /// Reads the units, and says for each source file which records to read and which module its symbols belong to.
   /// `targets` are the names of the targets of the package, which a build directory can be named after.
   func plan(files: Set<String>, targets: Set<String>) -> ReadingPlan {

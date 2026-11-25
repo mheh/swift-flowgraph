@@ -49,6 +49,15 @@ C names a function by its name alone, so two binaries of one project can each de
 
 The outline of a body is read from Swift sources only, so the trace of a C function is empty.
 
+### An index from another computer
+
+An index names each source file by the path that it had in the build. With `--from-index` the tool takes the files from the index and does not look for them on the disk, so the index of another computer, or of a build in a container, gives a snapshot:
+
+    flowgraph snapshot . --from-index --index-store idx --out snapshot.json
+
+The project directory gives the text of the lines when it holds the same sources, at any path. Without the sources, the snapshot has the same symbols and edges, but an exported C function is no entry point, because the tool reads the export from the text.
+`--sources` takes directories below the root of the project, as it does without the flag.
+
 ## The three forms of the viewer
 
 | Command | Result |

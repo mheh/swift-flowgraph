@@ -32,10 +32,10 @@ func depth(_ text: String) throws -> Int {
 }
 
 /// Where the snapshot came from: the name of the project, and the commit when the project is a git repository.
-func projectInfo(_ options: Options, indexed: Date?, stale: Int, unindexed: Int) -> [String: Any] {
+func projectInfo(_ options: Options, root: String, indexed: Date?, stale: Int, unindexed: Int) -> [String: Any] {
   func git(_ arguments: String...) -> String? { run("/usr/bin/env", ["git"] + ["-C", options.project] + arguments) }
   var info: [String: Any] = [
-    "name": options.title ?? URL(fileURLWithPath: options.project).lastPathComponent,
+    "name": options.title ?? URL(fileURLWithPath: root).lastPathComponent,
     "created": ISO8601DateFormatter().string(from: Date()),
   ]
   if let indexed { info["indexed"] = ISO8601DateFormatter().string(from: indexed) }
@@ -122,7 +122,7 @@ func makeSnapshot(_ options: Options) async throws -> Data {
   let edgeRows: [[Int]] = graph.edges.map { [$0.key.from, $0.key.to, $0.key.kind, $0.value.count, $0.value.line] }
     .sorted { ($0[0], $0[1], $0[2]) < ($1[0], $1[1], $1[2]) }
   let snapshot: [String: Any] = [
-    "format": "flowgraph", "version": 1, "project": projectInfo(options, indexed: indexed, stale: stale, unindexed: unindexed),
+    "format": "flowgraph", "version": 1, "project": projectInfo(options, root: read.root, indexed: indexed, stale: stale, unindexed: unindexed),
     "files": graph.files, "kinds": kinds, "modules": modules, "packages": packageNames, "edgeKinds": edgeKinds,
     "symbols": symbolRows, "usrs": graph.nodes.map(\.usr), "edges": edgeRows,
     "products": packages.flatMap { p in p.products.map { ["name": $0.name, "type": $0.type, "package": p.name] } }

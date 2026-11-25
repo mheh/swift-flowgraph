@@ -109,9 +109,9 @@ struct Graph {
   }
 
   /// Reads each occurrence of one record of a source file: a definition makes a node, a use makes an edge.
-  mutating func read(_ reading: Reading, relativeTo project: String, from store: RawStore) {
+  mutating func read(_ reading: Reading, relativeTo project: String, textAt text: String, from store: RawStore) {
     let path = reading.file
-    let lines = (try? String(contentsOfFile: path, encoding: .utf8))?.split(separator: "\n", omittingEmptySubsequences: false) ?? []
+    let lines = (try? String(contentsOfFile: text, encoding: .utf8))?.split(separator: "\n", omittingEmptySubsequences: false) ?? []
     let shown = path.hasPrefix(project + "/") ? String(path.dropFirst(project.count + 1)) : path
     let module = reading.context
     var all: [Occ] = []
