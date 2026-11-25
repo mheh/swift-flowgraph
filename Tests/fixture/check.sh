@@ -44,6 +44,8 @@ grep -q 'game.GetAPI' "$work/c-entries.txt" && grep -q 'host.main' "$work/c-entr
 [ "$(grep -c . "$work/c-entries.txt")" = 2 ] || fail "expected 2 entry points of the C fixture, got: $(cat "$work/c-entries.txt")"
 grep -q '"functionField"' "$work/c.json" || fail "a field that the code calls is no functionField"
 grep -q 'API_UNUSED' "$work/c.json" && fail "a macro that nothing uses is in the snapshot"
+grep -q '"amount == 0"' "$work/c.json" && grep -q '"while amount > API_VERSION"' "$work/c.json" || fail "the C snapshot has no outline of a body with its branches"
+grep -q '"API_TRACE"' "$work/c.json" || fail "the arms of an #if are no steps of the C outline"
 
 # The same index, with the sources at another path.
 mkdir "$work/moved" && cp -R "$work/src" "$work/moved/"

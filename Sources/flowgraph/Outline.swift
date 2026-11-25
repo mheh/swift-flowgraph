@@ -35,3 +35,46 @@ struct Outline {
   var endLine = 0
   var steps: [Step] = []
 }
+
+/// The source extent of each step of one file, and the node that owns its outline. The extents are nested or apart.
+struct Extents {
+  private var list: [(start: Int64, end: Int64, owner: Int, step: Step?)] = []
+  private var parent: [Int] = []
+
+  static func key(_ line: Int, _ column: Int) -> Int64 { Int64(line) << 20 | Int64(column) }
+
+  mutating func add(from start: Int64, to end: Int64, owner: Int, step: Step?) {
+    list.append((start, end, owner, step))
+  }
+
+  /// Must run after the last `add` and before `innermost`.
+  mutating func nest() {
+    list.sort { ($0.start, -$0.end) < ($1.start, -$1.end) }
+    parent = [Int](repeating: -1, count: list.count)
+    var stack: [Int] = []
+    for i in list.indices {
+      while let top = stack.last, list[top].end < list[i].end || list[top].end <= list[i].start { stack.removeLast() }
+      parent[i] = stack.last ?? -1
+      stack.append(i)
+    }
+  }
+
+  func innermost(_ line: Int, _ column: Int) -> (owner: Int, step: Step?)? {
+    let k = Extents.key(line, column)
+    var low = 0
+    var high = list.count
+    while low < high {
+      let mid = (low + high) / 2
+      if list[mid].start <= k { low = mid + 1 } else { high = mid }
+    }
+    var i = low - 1
+    while i >= 0, list[i].end <= k { i = parent[i] }
+    return i >= 0 ? (list[i].owner, list[i].step) : nil
+  }
+}
+
+extension Step {
+  func add(_ site: Site) {
+    if !refs.contains(where: { $0.to == site.key.to && $0.kind == site.key.kind }) { refs.append((site.key.to, site.key.kind)) }
+  }
+}

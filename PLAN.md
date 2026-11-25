@@ -83,8 +83,7 @@ What is missing, in the order of its weight:
    The edge kind `dispatch` exists for this link. The index alone links too much when one function fills more than one field; a parser of the body makes it exact.
    A dispatch by a number in a `switch`, reached by a looked-up symbol, leaves no trace in the index.
 3. **Entry points.** Only `main` is marked. An exported function that nothing in the project calls is a candidate.
-4. **Bodies.** The outlines come from SwiftSyntax, so C and C++ have none, and the trace and the comparison of bodies are empty.
-   libclang gives a real tree and comes with the toolchain. tree-sitter is lighter, and it does not expand macros.
+4. **Bodies.** The outlines come from SwiftSyntax, so C and C++ had none, and the trace and the comparison of bodies were empty. Step 5 below reads them from the text.
 5. **Macros.** 9,199 macro symbols with no edge to them make noise in the table.
 
 ### Goal 2: the work
@@ -104,7 +103,12 @@ What is missing, in the order of its weight:
       and in a comparison of the test project 917 symbols counted as affected by 4 changed bodies. With the rule it is 16.
 - [x] **4. Every record of a header (the cure for G).** Done. It follows from the reader of step 1.
       Measured on the two build trees of G: the old tool gave 2 and 1 symbols that the other tree did not have; the new tool gives the same set of symbols for both.
-- [ ] **5. Bodies for C and C++.** Not started, and not asked for yet. libclang is the first choice.
+- [x] **5. Bodies for C and C++.** Done, with a reader of the text and not with libclang.
+      libclang needs the flags of each compilation and the headers of the build computer. The index does not hold the flags, so an index from another computer and the exporter in the page would have no bodies.
+      The reader (`CTokens.swift`, `CBodies.swift`) splits the text into tokens and follows the braces and the keywords. What a step uses comes from the index by line and column, as for Swift, so a use inside a macro still lands on its step.
+      Measured on the C test project: 15,361 of 16,084 functions have an outline; the other 723 are declarations with no body. 272,518 steps in about 2 s more.
+      Of the calls, reads, and writes that the index has inside a body, all land on a step but 6, which are default values of parameters.
+      Not checked by eye beyond some ten functions. Known wrong: a function whose braces come from a macro.
 
 Checked for Swift: the fixture package gives the same snapshot from the old and from the new exporter, apart from the time. The test project of 2,205 files gives the same products and the same entry points;
 its C symbols have other names and modules where the old reader gave none (a field now leads with its struct, and a header symbol has the module of its header).

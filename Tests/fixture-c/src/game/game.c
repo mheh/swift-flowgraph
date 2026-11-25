@@ -13,6 +13,8 @@ static void G_Shutdown(void) {
 
 static int report(void) { return counter; }
 
+int status(void);
+
 API_EXPORT api_t *GetAPI(void) {
     static api_t api;
     api.version = API_VERSION;
@@ -22,3 +24,31 @@ API_EXPORT api_t *GetAPI(void) {
 }
 
 int status(void) { return report(); }
+
+int G_Command(int kind, int amount) {
+    switch (kind) {
+    case 1:
+        for (int i = 0; i < amount; i++)
+            counter += i;
+        break;
+    case 2:
+        if (amount < 0) {
+            return -1;
+        } else if (amount == 0)
+            G_Shutdown();
+        else
+            counter = clamp(amount,
+                            1000);
+        break;
+    default:
+#ifdef API_TRACE
+        report();
+#else
+        counter = 0;
+#endif
+    }
+    do {
+        amount--;
+    } while (amount > API_VERSION);
+    return status();
+}

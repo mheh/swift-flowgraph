@@ -46,7 +46,7 @@ package="$work/package"
 index="$repo/.build/checkouts/indexstore-db/Sources"
 mkdir -p "$package/Sources/flowgraph" "$package/Sources/IndexStore" "$package/Sources/IndexStoreCAPI"
 cp "$repo"/Sources/flowgraph/*.swift "$index"/IndexStore/*.swift "$package/Sources/"
-for file in Bodies Checkout Commands Page main dlopen indexstore_functions+init IndexStoreLibrary; do rm "$package/Sources/$file.swift"; done
+for file in SwiftBodies Checkout Commands Page main dlopen indexstore_functions+init IndexStoreLibrary; do rm "$package/Sources/$file.swift"; done
 mv "$package"/Sources/IndexStore*.swift "$package/Sources/IndexStore/"
 mv "$package"/Sources/*.swift "$package/Sources/flowgraph/"
 cp "$here/Sources/IndexStoreLibrary.swift" "$package/Sources/IndexStore/"

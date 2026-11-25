@@ -3,28 +3,26 @@ import SwiftParser
 import SwiftSyntax
 
 /// Reads the bodies of one Swift file: the outline of each function, and the closures that the project hands to other modules.
-struct BodyReader {
+struct SwiftBodyReader {
   let file: Int
   let converter: SourceLocationConverter
   let rules: EntryRules
   /// The calls and the function references of the file by their place, from the index.
   private var calls: [Int64: Int] = [:]
   private var functionRefs: [Int64: Int] = [:]
-  /// Each step with the extent of its source, and the node that owns its outline. The extents are nested or apart.
-  private var extents: [(start: Int64, end: Int64, owner: Int, step: Step?)] = []
+  private var extents = Extents()
   private(set) var outlines: [Int: Outline] = [:]
   private var closureNodes = Set<Int>()
 
-  private static func key(_ line: Int, _ column: Int) -> Int64 { Int64(line) << 20 | Int64(column) }
   private func start(_ node: some SyntaxProtocol) -> SourceLocation { node.startLocation(converter: converter) }
-  private func key(startOf node: some SyntaxProtocol) -> Int64 { let l = start(node); return BodyReader.key(l.line, l.column) }
-  private func key(endOf node: some SyntaxProtocol) -> Int64 { let l = node.endLocation(converter: converter); return BodyReader.key(l.line, l.column) }
+  private func key(startOf node: some SyntaxProtocol) -> Int64 { let l = start(node); return Extents.key(l.line, l.column) }
+  private func key(endOf node: some SyntaxProtocol) -> Int64 { let l = node.endLocation(converter: converter); return Extents.key(l.line, l.column) }
 
   /// The first line of a node, as the page shows it. When the node has more than that, its whole text goes into the hash of the step that is made next,
   /// so that a change past the first line still makes another step.
   private mutating func text(_ node: (some SyntaxProtocol)?, limit: Int = 110) -> String {
     guard let node else { return "" }
-    let shown = BodyReader.shown(node, limit: limit)
+    let shown = SwiftBodyReader.shown(node, limit: limit)
     if shown.hasSuffix("…") || node.trimmedDescription.contains("\n") {
       let tokens = TokenText(viewMode: .sourceAccurate)
       if pending != 0 { tokens.hash = pending }
@@ -60,12 +58,12 @@ struct BodyReader {
   static func read(path: String, file: Int, shown: String, rules: EntryRules, into graph: inout Graph) -> [Int: Outline] {
     guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { return [:] }
     let tree = Parser.parse(source: source)
-    var reader = BodyReader(file: file, converter: SourceLocationConverter(fileName: path, tree: tree), rules: rules)
+    var reader = SwiftBodyReader(file: file, converter: SourceLocationConverter(fileName: path, tree: tree), rules: rules)
     let calls = edgeKinds.firstIndex(of: "calls")!
     let refs = edgeKinds.firstIndex(of: "refs")!
     for site in graph.uses(in: file) where site.column > 0 {
-      if site.key.kind == calls { reader.calls[key(site.line, site.column)] = site.key.to }
-      if site.key.kind == refs { reader.functionRefs[key(site.line, site.column)] = site.key.to }
+      if site.key.kind == calls { reader.calls[Extents.key(site.line, site.column)] = site.key.to }
+      if site.key.kind == refs { reader.functionRefs[Extents.key(site.line, site.column)] = site.key.to }
     }
     let finder = DeclFinder(viewMode: .sourceAccurate)
     finder.walk(tree)
@@ -75,7 +73,7 @@ struct BodyReader {
       outline.steps = reader.steps(tree.statements, owner: top, graph: &graph)
       outline.endLine = reader.converter.location(for: tree.endPosition).line
       reader.outlines[top] = outline
-      reader.extents.append((0, .max, top, nil))
+      reader.extents.add(from: 0, to: .max, owner: top, step: nil)
     }
     reader.attach(to: &graph)
     return reader.outlines
@@ -83,35 +81,14 @@ struct BodyReader {
 
   /// Gives each use of the file to the innermost step that holds it, and the uses inside a new closure node to that node.
   private mutating func attach(to graph: inout Graph) {
-    extents.sort { ($0.start, -$0.end) < ($1.start, -$1.end) }
-    // The parent of an extent is the nearest one before it that holds it.
-    var parent = [Int](repeating: -1, count: extents.count)
-    var stack: [Int] = []
-    for i in extents.indices {
-      while let top = stack.last, extents[top].end < extents[i].end || extents[top].end <= extents[i].start { stack.removeLast() }
-      parent[i] = stack.last ?? -1
-      stack.append(i)
-    }
-    func innermost(_ line: Int, _ column: Int) -> Int? {
-      let k = BodyReader.key(line, column)
-      var low = 0
-      var high = extents.count
-      while low < high {
-        let mid = (low + high) / 2
-        if extents[mid].start <= k { low = mid + 1 } else { high = mid }
-      }
-      var i = low - 1
-      while i >= 0, extents[i].end <= k { i = parent[i] }
-      return i >= 0 ? i : nil
-    }
+    extents.nest()
     let closures = closureNodes
     graph.move(usesIn: file) { site in
-      guard let i = innermost(site.line, site.column), closures.contains(extents[i].owner), extents[i].owner != site.key.to else { return nil }
-      return extents[i].owner
+      guard let owner = extents.innermost(site.line, site.column)?.owner, closures.contains(owner), owner != site.key.to else { return nil }
+      return owner
     }
     for site in graph.uses(in: file) where site.column > 0 {
-      guard let i = innermost(site.line, site.column), let step = extents[i].step else { continue }
-      if !step.refs.contains(where: { $0.to == site.key.to && $0.kind == site.key.kind }) { step.refs.append((site.key.to, site.key.kind)) }
+      extents.innermost(site.line, site.column)?.step?.add(site)
     }
   }
 
@@ -162,7 +139,7 @@ struct BodyReader {
           guard let block = accessor.body else { continue }
           let step = Step("accessor", start(accessor).line, accessor.accessorSpecifier.text)
           step.children = steps(block.statements, owner: owner, graph: &graph)
-          extents.append((key(startOf: accessor), key(endOf: accessor), owner, step))
+          extents.add(from: key(startOf: accessor), to: key(endOf: accessor), owner: owner, step: step)
           outline.steps.append(step)
           if accessor.accessorSpecifier.tokenKind == .keyword(.get) {
             outline.flags |= effects(async: accessor.effectSpecifiers?.asyncSpecifier, throws: accessor.effectSpecifiers?.throwsClause)
@@ -172,7 +149,7 @@ struct BodyReader {
     } else {
       return
     }
-    extents.append((key(startOf: decl), key(endOf: decl), owner, nil))
+    extents.add(from: key(startOf: decl), to: key(endOf: decl), owner: owner, step: nil)
     outlines[owner] = outline
   }
 
@@ -188,7 +165,7 @@ struct BodyReader {
     let step = Step(kind, start(node).line, text)
     step.hash = pending
     pending = 0
-    extents.append((key(startOf: node), key(endOf: node), owner, step))
+    extents.add(from: key(startOf: node), to: key(endOf: node), owner: owner, step: step)
     return step
   }
 
@@ -305,20 +282,20 @@ struct BodyReader {
     step.flags |= scan.flags
     var handed: [SyntaxIdentifier: String] = [:]
     for call in scan.calls {
-      guard let name = BodyReader.calledName(call.calledExpression), let target = calls[key(startOf: name)],
+      guard let name = SwiftBodyReader.calledName(call.calledExpression), let target = calls[key(startOf: name)],
         graph.takesHandOff(target), rules.allows(module: graph.nodes[target].module, name: graph.nodes[target].name)
       else { continue }
-      let label = BodyReader.label(of: call, name: name.text)
+      let label = SwiftBodyReader.label(of: call, name: name.text)
       // A closure with an argument label is named with it, which tells two closures of one call apart.
       for argument in call.arguments {
         guard let closure = argument.expression.as(ClosureExprSyntax.self) else { continue }
-        handed[closure.id] = argument.label.map { BodyReader.label(of: call, name: name.text, closure: $0.text) } ?? label
+        handed[closure.id] = argument.label.map { SwiftBodyReader.label(of: call, name: name.text, closure: $0.text) } ?? label
       }
       if let trailing = call.trailingClosure { handed[trailing.id] = label }
-      for more in call.additionalTrailingClosures { handed[more.closure.id] = BodyReader.label(of: call, name: name.text, closure: more.label.text) }
+      for more in call.additionalTrailingClosures { handed[more.closure.id] = SwiftBodyReader.label(of: call, name: name.text, closure: more.label.text) }
       // A function that is passed by its name is an entry point too.
       for argument in call.arguments {
-        guard let name = BodyReader.calledName(argument.expression), let passed = functionRefs[key(startOf: name)], !graph.nodes[passed].external else { continue }
+        guard let name = SwiftBodyReader.calledName(argument.expression), let passed = functionRefs[key(startOf: name)], !graph.nodes[passed].external else { continue }
         graph.markEntry(passed, label: label)
       }
     }
@@ -331,7 +308,7 @@ struct BodyReader {
           var outline = Outline(flags: 0, endLine: closure.endLocation(converter: converter).line)
           outline.steps = steps(closure.statements, owner: id, graph: &graph)
           outlines[id] = outline
-          extents.append((key(startOf: closure), key(endOf: closure), id, nil))
+          extents.add(from: key(startOf: closure), to: key(endOf: closure), owner: id, step: nil)
           // The step has no extent of its own, so no use of the file lands on it. It names the closure node.
           let entry = Step("entry", start(closure).line, label)
           entry.refs = [(id, edgeKinds.firstIndex(of: "refs")!)]

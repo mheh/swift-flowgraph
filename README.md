@@ -88,8 +88,8 @@ A hosted page can make the snapshot of a C or C++ project itself, so a person wh
 2. In the library, press "choose the index store of a build" and pick that directory, or a directory that holds it and the sources.
 3. The page reads the files, makes the snapshot, opens it, and keeps it. Nothing leaves the computer.
 
-With the sources in the picked directory, the snapshot is the one that the command makes with `--from-index`. With the index alone, an exported function is no entry point.
-A Swift project needs the command: the page has no Swift parser, so it reads no bodies, and it does not know the products of a package.
+With the sources in the picked directory, the snapshot is the one that the command makes with `--from-index`. With the index alone, the snapshot has no bodies, and an exported function is no entry point.
+A Swift project needs the command: the page has no Swift parser, so it reads no Swift bodies, and it does not know the products of a package.
 
 The page offers this when its folder has `exporter.wasm`, which is the exporter as a WebAssembly program of about 54 MB (15 MB with Brotli):
 
@@ -138,6 +138,14 @@ The `Trace` tab shows the body of one function as an outline of its steps, in th
 - The table has two more columns from the bodies: `throws` (the places where an error leaves) and `async`.
 
 The trace shows the structure of a body, and the conditions as the source has them. It does not work out which branch runs.
+
+A C, C++, or Objective-C body is read from its text, with no compiler and no flag of the build:
+
+- A macro is not expanded: a step shows the source as it is written, and it names what the index found at that place, which includes what the macro uses.
+- An `#if` whose arms hold whole statements is a step for each arm, as the source has them. An arm that the build left out names no use.
+- Of an `#if` that cuts through a statement, one arm is read: the one that the build compiled.
+- A member that a constructor sets before its body is a step.
+- The outline has no `try`, no `await`, and no closure. A lambda is part of the step that holds it.
 
 ## Mark what you will replace
 
@@ -330,7 +338,7 @@ The head of `model.js` documents the snapshot format and the types.
 
 ## Limits
 
-- The trace is for Swift. A C or C++ function has edges, and no outline.
+- A C or C++ body is read with no compiler. A macro that opens or closes a block, or that stands for a keyword, gives a wrong outline of that function.
 - Local variables and parameters are not nodes.
 - The index holds one record of a header for each context that compiled it: each C file that includes it, and the build of its module for Swift. The records are not the same: one can hold a macro that the other does not.
   The tool reads every record and joins them, so two builds of one tree give the same symbols. A snapshot of a version before this one read one record only, by an order that changed with the build directory: compared with a new snapshot, it shows symbols of headers as added.

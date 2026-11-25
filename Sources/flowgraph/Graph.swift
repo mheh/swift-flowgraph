@@ -49,7 +49,8 @@ struct Graph {
   private var ids: [String: Int] = [:]
   private var fileIds: [String: Int] = [:]
   private var sites: [Int: Set<Site>] = [:]
-  private var places: [Place: Int] = [:]
+  /// The nodes that are defined at each place: more than one when more than one binary compiles the file.
+  private var places: [Place: [Int]] = [:]
   /// For each node that `read` made, the node that holds it after `finish` and `cone`, or -1.
   private(set) var finalId: [Int] = []
   /// An accessor is drawn as its property, and an extension as the type that it extends.
@@ -148,7 +149,10 @@ struct Graph {
             if Graph.exportMarks.contains(where: { lines[occ.line - 1].contains($0) || above.contains($0) }) { exportedByText.insert(sym) }
           }
         }
-        if isDefinition { places[Place(file: fileId(shown), line: occ.line, column: occ.column)] = sym }
+        if isDefinition {
+          let place = Place(file: fileId(shown), line: occ.line, column: occ.column)
+          if places[place]?.contains(sym) != true { places[place, default: []].append(sym) }
+        }
         for r in occ.relations {
           guard let other = id(r.sym, in: module) else { continue }
           if r.roles.contains(.accessorOf) { alias[sym] = other }
@@ -204,7 +208,11 @@ struct Graph {
   // --- what the reader of the bodies needs, between `read` and `finish`
 
   func fileIndex(_ shown: String) -> Int? { fileIds[shown] }
-  func definition(at place: Place) -> Int? { places[place] }
+  func definition(at place: Place) -> Int? { places[place]?.first }
+  func functionDefinitions(in file: Int) -> [(place: Place, nodes: [Int])] {
+    places.filter { $0.key.file == file && Sym.callable.contains(nodes[$0.value[0]].kind) }
+      .map { ($0.key, $0.value) }.sorted { ($0.place.line, $0.place.column) < ($1.place.line, $1.place.column) }
+  }
   func topLevel(of shown: String) -> Int? { ids["toplevel:" + shown] }
   /// They are in the order of the source, so that two snapshots of the same code are the same.
   func uses(in file: Int) -> [Site] {
