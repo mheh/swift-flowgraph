@@ -1,4 +1,4 @@
-# The image that CI publishes. Nothing compiles here: the context is the folder that Scripts/build-linux.sh filled.
+# The image that CI publishes. Nothing compiles here: the context is the folder that Scripts/build.sh filled.
 # Keep it the same as the last stage of Dockerfile, apart from where the files come from.
 ARG SWIFT_IMAGE=swift:6.4-noble
 FROM ${SWIFT_IMAGE}

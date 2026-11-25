@@ -26,7 +26,7 @@ the body outlines (SwiftSyntax), the products (SwiftPM), and the rules for entry
 - The edges come from the index store of the compiler. The tool reads no other code index. A symbol graph is optional and adds only declaration detail.
 - The tool only exports. The comparison of two snapshots happens in the browser.
 - For a comparison, export both sides in the same way and on the same platform.
-- The image workflow runs only on a push to `master`, and it publishes one image, `mhehmsoth/swift-flowgraph:swift-6.4`.
+- The workflow runs only on a push to `master`. It builds the tool once for each platform, and the one image, `mhehmsoth/swift-flowgraph:swift-6.4`, and the rolling `latest` release take the files of those builds.
 - No build in the browser. The viewer runs in the browser, and the build that writes the index store needs a compiler.
   The export itself needs none: see "The exporter in the browser" below.
 
@@ -204,4 +204,3 @@ Each part ends with a headless test of the page.
 - The Linux image builds, and the fixture check passes in it, with the case of an index from another computer and the outline of the C fixture.
 - The exporter for the page is built again from the current sources. On the index of the C test project it writes the same snapshot as the command.
 - In the page, the exporter reads the bodies when the picked folder holds the sources: 11 bodies of the C fixture, and none with the index alone.
-- Not done: `Scripts/build-linux.sh` still passes the include flags from the time of the database library. Nobody tried the build with no flags.

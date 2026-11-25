@@ -218,6 +218,15 @@ Each symbol of the project gets a state:
 
 A step is compared by its kind, its text, and what it uses. Comments and white space are not compared.
 
+## The download
+
+The release `latest` of this repository holds one zip for each platform, from the newest build of `master`:
+
+- `flowgraph-arm64-macos.zip`, which needs Xcode.
+- `flowgraph-x86_64-linux.zip`, which needs the Swift 6.4 toolchain for Linux.
+
+A zip holds `flowgraph` and its resources folder. Keep the two in one directory, because the tool finds the page beside its binary.
+
 ## The image
 
 `mhehmsoth/swift-flowgraph:swift-6.4` holds the tool on the Swift 6.4 image for Linux, with the toolchain, so it builds a project and reads the index of that build.

@@ -10,9 +10,9 @@ FROM ${SWIFT_IMAGE} AS build
 WORKDIR /workspace
 COPY Package.swift Package.resolved ./
 RUN swift package resolve
-COPY Scripts/build-linux.sh Scripts/
+COPY Scripts/build.sh Scripts/
 COPY Sources Sources
-RUN Scripts/build-linux.sh /out
+RUN Scripts/build.sh /out
 
 FROM ${SWIFT_IMAGE}
 # The page and its scripts are in the resources folder, which the tool finds beside its binary.
