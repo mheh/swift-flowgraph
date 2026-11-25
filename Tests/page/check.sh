@@ -6,7 +6,7 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 flowgraph=$1; head=$2; base=$3; shift 3
-[ $# -gt 0 ] || set -- library start changes controls
+[ $# -gt 0 ] || set -- library start changes controls trace
 site=$(mktemp -d /tmp/flowgraph-page.XXXXXX)
 port=8793
 

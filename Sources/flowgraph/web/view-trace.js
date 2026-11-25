@@ -47,62 +47,123 @@
     return html;
   }
 
-  function render() {
-    const { N } = FG.model, rows = [];
+  const indent = depth => `style="padding-left:${depth * 18}px"`;
+  const effectsOf = b => `${b.async ? ' · async' : ''}${b.throws ? ' · throws' : ''}`;
+  const badge = n => n.diff ? `<span class="dst d-${n.diff}">${FGDiff.LABEL[n.diff]}</span>` : '';
+
+  const keyword = s => {
+    if (s.kind === 'stmt') return '';
+    return `<b class="kw k-${s.kind.replace(/\W/g, '')}">${MARK[s.kind] ? MARK[s.kind] + ' ' : ''}${esc(s.kind)}</b> `;
+  };
+
+  function flagsHTML(s) {
+    const handled = s.flags & 2;
+    const tryTitle = handled ? 'try? or try!: the error stops here' : 'try: an error leaves this function here, unless a catch takes it';
+    return (s.flags & 1 ? `<i class="try${handled ? ' handled' : ''}" title="${tryTitle}">try</i>` : '')
+      + (s.flags & 4 ? '<i class="await" title="await: the function can be suspended here">await</i>' : '');
+  }
+
+  // The row of the base for a step whose first line changed. The row of the head follows it.
+  function baseRow(s, before, depth, inner, path) {
+    const word = s.kind === 'stmt' ? '' : `<b class="kw">${esc(s.kind)}</b> `;
+    return `<div class="tl del${inner}"><span class="ln">−${s.was.line}</span><span class="tx" ${indent(depth)}>${word}${before}</span>`
+      + `<span class="rf">${refsHTML({ refs: s.was.refs }, path + 'b')}</span></div>`;
+  }
+
+  function stepRow(s, text, depth, isTop, path) {
+    const textChanged = s.diff === '~' && s.was.text !== s.text;
+    const sign = s.diff === '+' || textChanged ? '+' : s.diff === '-' ? '−' : s.diff === '~' ? '~' : '';
+    const diffClass = { '+': ' add', '−': ' del', '~': ' chg' }[sign] || '';
+    const marked = s.refs.some(r => FG.isMarked(r.to));
+    let note = '';
+    if (s.diff === '~' && !textChanged) {
+      const why = s.was.hash !== s.hash ? 'its text changed past the first line' : 'what it uses or its try and await changed';
+      note = `<i class="note" title="The first line is the same. The step is not: ${why}.">changed</i>`;
+    }
+    return `<div class="tl${diffClass}${marked ? ' marked' : ''}${isTop ? '' : ' inner'}" data-line="${s.line}" data-top="${isTop ? 1 : 0}">`
+      + `<span class="ln">${sign}${s.line}</span>`
+      + `<span class="tx" ${indent(depth)}>${marked ? '<b class="mk">▣</b>' : ''}${keyword(s)}${text}${flagsHTML(s)}${note}</span>`
+      + `<span class="rf">${refsHTML(s, path)}</span></div>`;
+  }
+
+  function calleeRow(id, body, depth, again) {
+    const callee = FG.model.N[id];
+    const where = esc(FG.where(callee)) + effectsOf(body) + (again ? ' · it is open above: a recursion' : '');
+    return `<div class="tl into" data-id="${id}"><span class="ln"></span>`
+      + `<span class="tx" ${indent(depth)}>↳ <b>${esc(callee.name)}</b>${callee.diff ? ' ' + badge(callee) : ''} <span class="dim">${where}</span></span>`
+      + '<span class="rf"></span></div>';
+  }
+
+  // What a step calls, each with the path of the row that names it. A callee that only the step of the base calls opens too.
+  function calleesOf(s, path) {
+    const now = s.refs.map(r => [r, path]);
+    if (s.diff !== '~') return now;
+    const gone = s.was.refs.filter(r => !s.refs.some(x => x.to === r.to && x.kind === r.kind));
+    return now.concat(gone.map(r => [r, path + 'b']));
+  }
+
+  // The rows of the outline of one function, with each opened call in place.
+  function rowsOf(id) {
+    const rows = [];
     let full = false;
     // chain: the functions that are open above this row. A function that is in it already is not opened again.
-    const walk = (steps, depth, path, chain) => {
-      steps.forEach((s, i) => {
-        if (rows.length >= MAX_ROWS) { full = true; return; }
-        const p = path + '/' + i, marked = s.refs.some(r => FG.isMarked(r.to));
-        // A changed step is two rows: the step of the base, then the step of the head, with the words that are not in both marked.
-        let text = esc(s.text), note = '';
-        if (s.diff === '~') {
-          if (s.was.text !== s.text) {
-            const [before, after] = FGDiff.words(s.was.text, s.text);
-            text = after;
-            rows.push(`<div class="tl del${chain.length > 1 ? ' inner' : ''}"><span class="ln">−${s.was.line}</span><span class="tx" style="padding-left:${depth * 18}px">${s.kind === 'stmt' ? '' : `<b class="kw">${esc(s.kind)}</b> `}${before}</span><span class="rf">${refsHTML({ refs: s.was.refs }, p + 'b')}</span></div>`);
-          } else note = `<i class="note" title="The first line is the same. The step is not: ${s.was.hash !== s.hash ? 'its text changed past the first line' : 'what it uses or its try and await changed'}.">changed</i>`;
-        }
-        const sign = s.diff === '+' || (s.diff === '~' && s.was.text !== s.text) ? '+' : s.diff === '-' ? '−' : s.diff === '~' ? '~' : '';
-        const dcls = sign === '+' ? ' add' : sign === '−' ? ' del' : sign === '~' ? ' chg' : '';
-        const tried = s.flags & 1 ? `<i class="try${s.flags & 2 ? ' handled' : ''}" title="${s.flags & 2 ? 'try? or try!: the error stops here' : 'try: an error leaves this function here, unless a catch takes it'}">try</i>` : '';
-        const waits = s.flags & 4 ? `<i class="await" title="await: the function can be suspended here">await</i>` : '';
-        const word = s.kind === 'stmt' ? '' : `<b class="kw k-${s.kind.replace(/\W/g, '')}">${MARK[s.kind] ? MARK[s.kind] + ' ' : ''}${esc(s.kind)}</b> `;
-        rows.push(`<div class="tl${dcls}${marked ? ' marked' : ''}${chain.length > 1 ? ' inner' : ''}" data-line="${s.line}" data-top="${chain.length === 1 ? 1 : 0}">`
-          + `<span class="ln">${sign}${s.line}</span><span class="tx" style="padding-left:${depth * 18}px">${marked ? '<b class="mk">▣</b>' : ''}${word}${text}${tried}${waits}${note}</span>`
-          + `<span class="rf">${refsHTML(s, p)}</span></div>`);
-        // A callee that only the step of the base calls opens too.
-        const callees = s.refs.map(r => [r, p]).concat(s.diff === '~' ? s.was.refs.filter(r => !s.refs.some(x => x.to === r.to && x.kind === r.kind)).map(r => [r, p + 'b']) : []);
-        for (const [r, from] of callees) {
-          if (r.kind !== 'calls' && !(s.kind === 'entry' && r.kind === 'refs')) continue;
-          const key = from + '>' + r.to;
-          if (!opened.has(key)) continue;
-          const callee = N[r.to], b = FG.body(r.to);
-          if (!b) continue;
-          const again = chain.includes(r.to);
-          rows.push(`<div class="tl into" data-id="${r.to}"><span class="ln"></span><span class="tx" style="padding-left:${(depth + 1) * 18}px">↳ <b>${esc(callee.name)}</b>${callee.diff ? ` <span class="dst d-${callee.diff}">${FGDiff.LABEL[callee.diff]}</span>` : ''}`
-            + ` <span class="dim">${esc(FG.where(callee))}${b.async ? ' · async' : ''}${b.throws ? ' · throws' : ''}${again ? ' · it is open above: a recursion' : ''}</span></span><span class="rf"></span></div>`);
-          if (!again) walk(b.steps, depth + 2, key, [...chain, r.to]);
-        }
-        if (s.children.length) walk(s.children, depth + 1, p, chain);
-      });
-    };
+    const walk = (steps, depth, path, chain) => steps.forEach((s, i) => {
+      if (rows.length >= MAX_ROWS) { full = true; return; }
+      const p = path + '/' + i, isTop = chain.length === 1;
+      // A changed step is two rows: the step of the base, then the step of the head, with the words that are not in both marked.
+      let text = esc(s.text);
+      if (s.diff === '~' && s.was.text !== s.text) {
+        const [before, after] = FGDiff.words(s.was.text, s.text);
+        rows.push(baseRow(s, before, depth, isTop ? '' : ' inner', p));
+        text = after;
+      }
+      rows.push(stepRow(s, text, depth, isTop, p));
+      for (const [r, from] of calleesOf(s, p)) {
+        const key = from + '>' + r.to, body = FG.body(r.to);
+        const opens = r.kind === 'calls' || (s.kind === 'entry' && r.kind === 'refs');
+        if (!opens || !opened.has(key) || !body) continue;
+        const again = chain.includes(r.to);
+        rows.push(calleeRow(r.to, body, depth + 1, again));
+        if (!again) walk(body.steps, depth + 2, key, [...chain, r.to]);
+      }
+      if (s.children.length) walk(s.children, depth + 1, p, chain);
+    });
+    walk(FG.body(id).steps, 0, String(id), [id]);
+    return { rows, full };
+  }
+
+  function headHTML(n, b) {
+    const effects = x => [x.async && 'async', x.throws && 'throws'].filter(Boolean).join(' ') || 'no effect';
+    const sides = { both: 'the base and the head as one', head: 'the head: the new code', base: 'the base: the old code' };
+    const side = FG.model.merged ? sides[FG.state.side] : '';
+    return `<b>${esc(n.name)}</b> ${n.diff ? badge(n) + ' ' : ''}<span class="dim">${esc(n.kind)}${effectsOf(b)} · ${esc(FG.where(n))}–${b.endLine}</span>`
+      + (b.was ? ` <span class="dst d-removed">− ${effects(b.was)}</span> <span class="dst d-added">+ ${effects(b)}</span>` : '')
+      + (side ? ` <span class="dim">· ${side}</span>` : '');
+  }
+
+  function statusText(count, full) {
+    const exits = FG.exits(focus), n = cls => list.querySelectorAll('.tl.' + cls).length;
+    const returns = exits.filter(e => e.type === 'return' || e.type === 'end').length;
+    const errors = exits.filter(e => (e.type === 'throw' || e.type === 'try') && !e.caught).length;
+    const changes = FG.model.merged && FG.state.side === 'both' ? `+${n('add')} −${n('del')}${n('chg') ? ' ~' + n('chg') : ''} · ` : '';
+    return changes + `${count} steps` + (full ? ` — the first ${MAX_ROWS}: close a call to see the rest` : '')
+      + ` · ${returns} returns, ${errors} places where an error leaves`;
+  }
+
+  function render() {
     if (focus == null) {
+      const none = Object.keys(FG.model.bodies).length
+        ? 'Select a function, or make one the root, to see what its body does.'
+        : 'This snapshot has no bodies. The export had no source files to read them from, or it ran with --no-bodies.';
       headBox.innerHTML = '';
-      list.innerHTML = `<div class="none">${Object.keys(FG.model.bodies).length ? 'Select a function, or make one the root, to see what its body does.' : 'This snapshot has no bodies. The export had no source files to read them from, or it ran with --no-bodies.'}</div>`;
+      list.innerHTML = `<div class="none">${none}</div>`;
       FG.status('');
       return;
     }
-    const n = N[focus], b = FG.body(focus);
-    const effects = x => [x.async && 'async', x.throws && 'throws'].filter(Boolean).join(' ') || 'no effect';
-    const side = FG.model.merged ? { both: 'the base and the head as one', head: 'the head: the new code', base: 'the base: the old code' }[FG.state.side] : '';
-    headBox.innerHTML = `<b>${esc(n.name)}</b> ${n.diff ? `<span class="dst d-${n.diff}">${FGDiff.LABEL[n.diff]}</span> ` : ''}<span class="dim">${esc(n.kind)}${b.async ? ' · async' : ''}${b.throws ? ' · throws' : ''} · ${esc(FG.where(n))}–${b.endLine}</span>`
-      + (b.was ? ` <span class="dst d-removed">− ${effects(b.was)}</span> <span class="dst d-added">+ ${effects(b)}</span>` : '') + (side ? ` <span class="dim">· ${side}</span>` : '');
-    walk(b.steps, 0, String(focus), [focus]);
+    headBox.innerHTML = headHTML(FG.model.N[focus], FG.body(focus));
+    const { rows, full } = rowsOf(focus);
     list.innerHTML = rows.join('') || '<div class="none">The body is empty.</div>';
-    const ex = FG.exits(focus), plus = list.querySelectorAll('.tl.add').length, minus = list.querySelectorAll('.tl.del').length, other = list.querySelectorAll('.tl.chg').length;
-    FG.status((FG.model.merged && FG.state.side === 'both' ? `+${plus} −${minus}${other ? ' ~' + other : ''} · ` : '') + `${rows.length} steps` + (full ? ` — the first ${MAX_ROWS}: close a call to see the rest` : '') + ` · ${ex.filter(e => e.type === 'return' || e.type === 'end').length} returns, ${ex.filter(e => (e.type === 'throw' || e.type === 'try') && !e.caught).length} places where an error leaves`, full);
+    FG.status(statusText(rows.length, full), full);
   }
 
   const view = {
