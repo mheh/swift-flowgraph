@@ -19,14 +19,17 @@
     rootsKey = key; ownSelection = state.selected;
   }
 
+  // An operator of the standard library says nothing that the text of the step does not say. The same is true of the call
+  // that the compiler puts in for a literal or for a string with values in it: init(arrayLiteral:), appendInterpolation(_:).
+  const inText = name => { const last = name.split('.').pop(); return !/^[A-Za-z_]/.test(last) || /^init\((\w+Literal|stringInterpolation|literalCapacity)\b/.test(last) || /^append(Interpolation|Literal)\(/.test(last); };
+
   function refsHTML(step, path) {
     const { N } = FG.model, byKind = {};
     for (const r of step.refs) (byKind[r.kind] = byKind[r.kind] || []).push(r.to);
     let html = '';
     const mark = id => N[id].diff && !N[id].ext ? `<i class="dst d-${N[id].diff}" title="${FGDiff.LABEL[N[id].diff]}">${FGDiff.SIGN[N[id].diff]}</i> ` : '';
     for (const id of byKind.calls || []) {
-      // An operator of the standard library says nothing that the text of the step does not say.
-      if (N[id].sys && !FG.isMarked(id) && !/^[A-Za-z_]/.test(N[id].name.split('.').pop())) continue;
+      if (N[id].sys && !FG.isMarked(id) && inText(N[id].name)) continue;
       const n = N[id], can = hasBody(id), key = path + '>' + id;
       html += `<span class="call${FG.isMarked(id) ? ' marked' : ''}${state.selected === id ? ' picked' : ''}" data-id="${id}" title="${esc(n.name)} · ${esc(FG.where(n))}">`
         + (can ? `<b data-exp="${key}">${opened.has(key) ? '▾' : '▸'}</b>` : '') + (FG.isMarked(id) ? '▣ ' : '') + mark(id) + esc(FG.short(n)) + '</span>';

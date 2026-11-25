@@ -168,9 +168,12 @@
           'elk.layered.crossingMinimization.strategy': shown.size > 400 && !groups.size ? 'NONE' : 'LAYER_SWEEP',
           'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF', 'elk.edgeRouting': 'POLYLINE', 'elk.padding': '[top=22,left=10,bottom=10,right=10]' },
       });
-      layout.one('layoutstop', () => { if (mine === runId) { FG.status(`${text} · ${Math.round(performance.now() - t0)} ms`, more > 0); highlight(state.selected); } });
+      let done = false;
+      layout.one('layoutstop', () => { if (mine === runId) { done = true; FG.status(`${text} · ${Math.round(performance.now() - t0)} ms`, more > 0); highlight(state.selected); } });
       // ELK fails on a graph that is too large: say so, and do not leave an empty page.
-      const failed = () => { if (mine === runId) FG.status(`${shown.size} symbols are too many to lay out: lower the limit or the depth`, true); };
+      // The page has one handler for all layouts, so the failure of an older layout, which a newer one cut short, also comes here.
+      // A layout that ended did not fail, and a layout that ends later writes its own status over this one.
+      const failed = () => { if (mine === runId && !done) FG.status(`${shown.size} symbols are too many to lay out: lower the limit or the depth`, true); };
       window.onunhandledrejection = failed;
       try { layout.run(); } catch (e) { failed(); }
     },
