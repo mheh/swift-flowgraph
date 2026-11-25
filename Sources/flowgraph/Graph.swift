@@ -109,99 +109,113 @@ struct Graph {
     sites[file, default: []].insert(Site(key: key, file: file, line: occ.line, column: occ.column))
   }
 
+  /// One source file as one record saw it, with its text.
+  private struct Source {
+    let reading: Reading
+    let shown: String
+    let lines: [Substring]
+
+    func line(_ number: Int) -> Substring { number >= 1 && number <= lines.count ? lines[number - 1] : "" }
+
+    /// The attribute that exports a function is on the line of its name, or on the line above it.
+    func exports(at number: Int) -> Bool {
+      guard number >= 1, number <= lines.count else { return false }
+      return Graph.exportMarks.contains { lines[number - 1].contains($0) || line(number - 1).contains($0) }
+    }
+  }
+
   /// Reads each occurrence of one record of a source file: a definition makes a node, a use makes an edge.
   mutating func read(_ reading: Reading, relativeTo project: String, textAt text: String, from store: RawStore) {
-    let path = reading.file
     let lines = (try? String(contentsOfFile: text, encoding: .utf8))?.split(separator: "\n", omittingEmptySubsequences: false) ?? []
-    let shown = path.hasPrefix(project + "/") ? String(path.dropFirst(project.count + 1)) : path
-    let module = reading.context
+    let shown = reading.file.hasPrefix(project + "/") ? String(reading.file.dropFirst(project.count + 1)) : reading.file
+    let source = Source(reading: reading, shown: shown, lines: lines)
     var all: [Occ] = []
     store.forEachOccurrence(of: reading.record) { all.append($0) }
     for occ in all {
-      let roles = occ.roles
-      let declares = roles.contains(.definition) || roles.contains(.declaration)
+      let isDefinition = occ.roles.contains(.definition)
+      let declares = isDefinition || occ.roles.contains(.declaration)
       // The declaration of a name that other binaries define, in a header that this binary only reads, is no symbol of its own.
-      if declares, !roles.contains(.definition), let own = owners[occ.sym.usr], own.count > 1, !own.contains(module) { continue }
-      if occ.sym.kind == "macro" {
-        // A macro can hold the attribute that exports a function from its binary. The line that uses it is kept.
-        let text = occ.line >= 1 && occ.line <= lines.count ? lines[occ.line - 1] : ""
-        if roles.contains(.definition) {
-          if Graph.exportMarks.contains(where: text.contains) { exportMacros.insert(occ.sym.usr) }
-        } else if roles.contains(.reference) {
-          macroUses[Place(file: fileId(shown), line: occ.line, column: 0), default: []].insert(occ.sym.usr)
-        }
-      }
-      guard let sym = id(occ.sym, in: module) else { continue }
+      if declares, !isDefinition, let own = owners[occ.sym.usr], own.count > 1, !own.contains(reading.context) { continue }
+      if occ.sym.kind == "macro" { noteMacro(occ, in: source) }
+      guard let sym = id(occ.sym, in: reading.context) else { continue }
       if declares {
-        let isDefinition = roles.contains(.definition)
-        if !nodes[sym].isDefinition {
-          // Swift sees a C field as a property. The place that declares the symbol says what it is.
-          nodes[sym].kind = occ.sym.kind
-          nodes[sym].file = fileId(shown)
-          nodes[sym].line = occ.line
-          nodes[sym].module = reading.module
-          nodes[sym].isDefinition = isDefinition
-          nodes[sym].external = false
-          nodes[sym].entry = isDefinition && Graph.isEntry(occ.sym, line: occ.line, in: lines)
-          if isDefinition, !occ.sym.swift, occ.sym.kind == "function", occ.line >= 1, occ.line <= lines.count {
-            // The attribute is on the line of the name, or on the line above it.
-            let above = occ.line >= 2 ? lines[occ.line - 2] : ""
-            if Graph.exportMarks.contains(where: { lines[occ.line - 1].contains($0) || above.contains($0) }) { exportedByText.insert(sym) }
-          }
-        }
-        if isDefinition {
-          let place = Place(file: fileId(shown), line: occ.line, column: occ.column)
-          if places[place]?.contains(sym) != true { places[place, default: []].append(sym) }
-        }
-        for r in occ.relations {
-          guard let other = id(r.sym, in: module) else { continue }
-          if r.roles.contains(.accessorOf) { alias[sym] = other }
-          if r.roles.contains(.childOf), parents[sym] == nil { parents[sym] = other }
-          // The implementation of a requirement, or the override of a method: a call of the base can land here.
-          if r.roles.contains(.overrideOf) { add(other, sym, "dispatch", fileId(shown), occ) }
-        }
-        continue
+        declare(sym, at: occ, in: source)
+      } else if occ.roles.contains(.reference) || occ.roles.contains(.call) {
+        use(sym, at: occ, in: source)
       }
-      guard roles.contains(.reference) || roles.contains(.call) else { continue }
-      let file = fileId(shown)
-      for r in occ.relations {
-        guard let other = id(r.sym, in: module) else { continue }
-        if r.roles.contains(.extendedBy) { alias[other] = sym }
-        if r.roles.contains(.baseOf) { add(other, sym, "inherits", file, occ) }
-      }
-      let isCall = roles.contains(.call)
-      let wanted: IndexStoreSymbolRoles = isCall ? .calledBy : .containedBy
-      let from: Int
-      if let user = occ.relations.first(where: { $0.roles.contains(wanted) }) {
-        guard let found = id(user.sym, in: module) else { continue }
-        from = found
-      } else if path.hasSuffix("/main.swift") {
-        // The top-level code of main.swift has no declaration, so it gets a node of its own: the entry point of the executable.
-        let key = "toplevel:" + shown
-        if ids[key] == nil {
-          ids[key] = nodes.count
-          nodes.append(Node(usr: key, name: "main.swift", kind: "function", file: file, line: 1, module: reading.module, isDefinition: true, external: false, entry: true))
-        }
-        from = ids[key]!
-      } else {
-        continue
-      }
-      let kind: String
-      let sub = occ.sym.sub
-      if isCall, sub == .accessorSetter || sub == .swiftAccessorWillSet || sub == .swiftAccessorDidSet || sub == .swiftAccessorMutableAddressor {
-        kind = "writes"
-      } else if isCall, sub == .accessorGetter || sub == .swiftAccessorAddressor {
-        kind = "reads"
-      } else if isCall {
-        kind = "calls"
-      } else if occ.sym.isData {
-        kind = roles.contains(.write) ? "writes" : "reads"
-      } else if occ.sym.isCallable {
-        kind = "refs"
-      } else {
-        kind = "uses"
-      }
-      add(from, sym, kind, file, occ)
+    }
+  }
+
+  /// A macro can hold the attribute that exports a function from its binary. The line that uses it is kept.
+  private mutating func noteMacro(_ occ: Occ, in source: Source) {
+    if occ.roles.contains(.definition) {
+      if Graph.exportMarks.contains(where: source.line(occ.line).contains) { exportMacros.insert(occ.sym.usr) }
+    } else if occ.roles.contains(.reference) {
+      macroUses[Place(file: fileId(source.shown), line: occ.line, column: 0), default: []].insert(occ.sym.usr)
+    }
+  }
+
+  /// A file is in the list of the files only when a symbol or an edge names it, so no line here asks for its number early.
+  private mutating func declare(_ sym: Int, at occ: Occ, in source: Source) {
+    let isDefinition = occ.roles.contains(.definition)
+    if !nodes[sym].isDefinition {
+      // Swift sees a C field as a property. The place that declares the symbol says what it is.
+      nodes[sym].kind = occ.sym.kind
+      nodes[sym].file = fileId(source.shown)
+      nodes[sym].line = occ.line
+      nodes[sym].module = source.reading.module
+      nodes[sym].isDefinition = isDefinition
+      nodes[sym].external = false
+      nodes[sym].entry = isDefinition && Graph.isEntry(occ.sym, line: occ.line, in: source.lines)
+      if isDefinition, !occ.sym.swift, occ.sym.kind == "function", source.exports(at: occ.line) { exportedByText.insert(sym) }
+    }
+    if isDefinition {
+      let place = Place(file: fileId(source.shown), line: occ.line, column: occ.column)
+      if places[place]?.contains(sym) != true { places[place, default: []].append(sym) }
+    }
+    for r in occ.relations {
+      guard let other = id(r.sym, in: source.reading.context) else { continue }
+      if r.roles.contains(.accessorOf) { alias[sym] = other }
+      if r.roles.contains(.childOf), parents[sym] == nil { parents[sym] = other }
+      // The implementation of a requirement, or the override of a method: a call of the base can land here.
+      if r.roles.contains(.overrideOf) { add(other, sym, "dispatch", fileId(source.shown), occ) }
+    }
+  }
+
+  private mutating func use(_ sym: Int, at occ: Occ, in source: Source) {
+    let file = fileId(source.shown)
+    for r in occ.relations {
+      guard let other = id(r.sym, in: source.reading.context) else { continue }
+      if r.roles.contains(.extendedBy) { alias[other] = sym }
+      if r.roles.contains(.baseOf) { add(other, sym, "inherits", file, occ) }
+    }
+    guard let from = user(of: occ, in: source, file: file) else { return }
+    add(from, sym, Graph.edgeKind(of: occ), file, occ)
+  }
+
+  /// The symbol whose code holds the use.
+  private mutating func user(of occ: Occ, in source: Source, file: Int) -> Int? {
+    let wanted: IndexStoreSymbolRoles = occ.roles.contains(.call) ? .calledBy : .containedBy
+    if let user = occ.relations.first(where: { $0.roles.contains(wanted) }) { return id(user.sym, in: source.reading.context) }
+    guard source.reading.file.hasSuffix("/main.swift") else { return nil }
+    // The top-level code of main.swift has no declaration, so it gets a node of its own: the entry point of the executable.
+    let key = "toplevel:" + source.shown
+    if ids[key] == nil {
+      ids[key] = nodes.count
+      nodes.append(Node(usr: key, name: "main.swift", kind: "function", file: file, line: 1, module: source.reading.module, isDefinition: true, external: false, entry: true))
+    }
+    return ids[key]
+  }
+
+  private static func edgeKind(of occ: Occ) -> String {
+    guard occ.roles.contains(.call) else {
+      if occ.sym.isData { return occ.roles.contains(.write) ? "writes" : "reads" }
+      return occ.sym.isCallable ? "refs" : "uses"
+    }
+    switch occ.sym.sub {
+    case .accessorSetter, .swiftAccessorWillSet, .swiftAccessorDidSet, .swiftAccessorMutableAddressor: return "writes"
+    case .accessorGetter, .swiftAccessorAddressor: return "reads"
+    default: return "calls"
     }
   }
 

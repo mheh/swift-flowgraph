@@ -21,10 +21,38 @@ final class Step {
     self.text = text
   }
 
+  /// The first line of a text as the page shows it: each run of white space is one space, and a long line is cut with `…`.
+  static func firstLine(of text: some Sequence<Character>, limit: Int = 110) -> String {
+    var out = ""
+    var space = false
+    for c in text {
+      if c == "\n" || c == "\r\n" { break }
+      if c == " " || c == "\t" {
+        space = true
+        continue
+      }
+      if space, !out.isEmpty { out.append(" ") }
+      space = false
+      out.append(c)
+      if out.count >= limit { return out + "…" }
+    }
+    return out
+  }
+
   static let hasTry = 1
   /// `try?` and `try!` do not pass the error on.
   static let tryIsHandled = 2
   static let hasAwait = 4
+}
+
+/// The hash of the tokens of a step. It has a fixed width, so each platform gives the same number.
+struct TokenHash {
+  var value: UInt32 = 2_166_136_261
+
+  mutating func add(_ token: some Sequence<UInt8>) {
+    for byte in token { value = (value ^ UInt32(byte)) &* 16_777_619 }
+    value = (value ^ 32) &* 16_777_619
+  }
 }
 
 /// The outline of the body of one function, of one property with accessors, or of one closure that became a node.

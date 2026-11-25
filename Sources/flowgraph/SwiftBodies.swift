@@ -22,37 +22,16 @@ struct SwiftBodyReader {
   /// so that a change past the first line still makes another step.
   private mutating func text(_ node: (some SyntaxProtocol)?, limit: Int = 110) -> String {
     guard let node else { return "" }
-    let shown = SwiftBodyReader.shown(node, limit: limit)
+    let shown = Step.firstLine(of: node.trimmedDescription, limit: limit)
     if shown.hasSuffix("…") || node.trimmedDescription.contains("\n") {
       let tokens = TokenText(viewMode: .sourceAccurate)
-      if pending != 0 { tokens.hash = pending }
+      if pending != 0 { tokens.hash.value = pending }
       tokens.walk(node)
-      pending = tokens.hash
+      pending = tokens.hash.value
     }
     return shown
   }
   private var pending: UInt32 = 0
-
-  private static func shown(_ node: (some SyntaxProtocol)?, limit: Int = 110) -> String {
-    guard let node else { return "" }
-    var out = ""
-    var space = false
-    for c in node.trimmedDescription {
-      if c == "\n" { break }
-      if c == " " || c == "\t" {
-        space = true
-        continue
-      }
-      if space, !out.isEmpty { out.append(" ") }
-      space = false
-      out.append(c)
-      if out.count >= limit {
-        out.append("…")
-        return out
-      }
-    }
-    return out
-  }
 
   /// Reads one file. It must run after every file was read into the graph and before `finish`.
   static func read(path: String, file: Int, shown: String, rules: EntryRules, into graph: inout Graph) -> [Int: Outline] {
@@ -94,13 +73,15 @@ struct SwiftBodyReader {
 
   // --- the declarations that have a body
 
+  private static func effects(_ specifiers: (async: TokenSyntax?, throws: ThrowsClauseSyntax?)) -> Int {
+    let canThrow = specifiers.throws != nil && specifiers.throws?.throwsSpecifier.tokenKind != .keyword(.rethrows)
+    return (specifiers.async != nil ? Outline.isAsync : 0) | (canThrow ? Outline.canThrow : 0)
+  }
+
   private mutating func outline(_ decl: Syntax, graph: inout Graph) {
     func node(at token: TokenSyntax) -> Int? {
       let l = start(token)
       return graph.definition(at: Place(file: file, line: l.line, column: l.column))
-    }
-    func effects(async: TokenSyntax?, throws clause: ThrowsClauseSyntax?) -> Int {
-      (async != nil ? Outline.isAsync : 0) | (clause != nil && clause?.throwsSpecifier.tokenKind != .keyword(.rethrows) ? Outline.canThrow : 0)
     }
     var owner: Int?
     var flags = 0
@@ -110,11 +91,11 @@ struct SwiftBodyReader {
       owner = node(at: f.name)
       // A declaration with no body names code of another binary: the project calls it, and nothing starts the project there.
       if f.body == nil, let owner { graph.unmarkEntry(owner) }
-      flags = effects(async: f.signature.effectSpecifiers?.asyncSpecifier, throws: f.signature.effectSpecifiers?.throwsClause)
+      flags = SwiftBodyReader.effects((f.signature.effectSpecifiers?.asyncSpecifier, f.signature.effectSpecifiers?.throwsClause))
       body = f.body?.statements
     } else if let f = decl.as(InitializerDeclSyntax.self) {
       owner = node(at: f.initKeyword)
-      flags = effects(async: f.signature.effectSpecifiers?.asyncSpecifier, throws: f.signature.effectSpecifiers?.throwsClause)
+      flags = SwiftBodyReader.effects((f.signature.effectSpecifiers?.asyncSpecifier, f.signature.effectSpecifiers?.throwsClause))
       body = f.body?.statements
     } else if let f = decl.as(DeinitializerDeclSyntax.self) {
       owner = node(at: f.deinitKeyword)
@@ -126,31 +107,33 @@ struct SwiftBodyReader {
       owner = node(at: name.identifier)
       accessors = binding.accessorBlock
     }
-    guard let owner, outlines[owner] == nil else { return }
+    guard let owner, outlines[owner] == nil, body != nil || accessors != nil else { return }
     var outline = Outline(flags: flags, endLine: decl.endLocation(converter: converter).line)
     if let body {
       outline.steps = steps(body, owner: owner, graph: &graph)
     } else if let accessors {
-      switch accessors.accessors {
-      case .getter(let list):
-        outline.steps = steps(list, owner: owner, graph: &graph)
-      case .accessors(let list):
-        for accessor in list {
-          guard let block = accessor.body else { continue }
-          let step = Step("accessor", start(accessor).line, accessor.accessorSpecifier.text)
-          step.children = steps(block.statements, owner: owner, graph: &graph)
-          extents.add(from: key(startOf: accessor), to: key(endOf: accessor), owner: owner, step: step)
-          outline.steps.append(step)
-          if accessor.accessorSpecifier.tokenKind == .keyword(.get) {
-            outline.flags |= effects(async: accessor.effectSpecifiers?.asyncSpecifier, throws: accessor.effectSpecifiers?.throwsClause)
-          }
-        }
-      }
-    } else {
-      return
+      read(accessors, into: &outline, owner: owner, graph: &graph)
     }
     extents.add(from: key(startOf: decl), to: key(endOf: decl), owner: owner, step: nil)
     outlines[owner] = outline
+  }
+
+  private mutating func read(_ block: AccessorBlockSyntax, into outline: inout Outline, owner: Int, graph: inout Graph) {
+    switch block.accessors {
+    case .getter(let list):
+      outline.steps = steps(list, owner: owner, graph: &graph)
+    case .accessors(let list):
+      for accessor in list {
+        guard let body = accessor.body else { continue }
+        let step = Step("accessor", start(accessor).line, accessor.accessorSpecifier.text)
+        step.children = steps(body.statements, owner: owner, graph: &graph)
+        extents.add(from: key(startOf: accessor), to: key(endOf: accessor), owner: owner, step: step)
+        outline.steps.append(step)
+        if accessor.accessorSpecifier.tokenKind == .keyword(.get) {
+          outline.flags |= SwiftBodyReader.effects((accessor.effectSpecifiers?.asyncSpecifier, accessor.effectSpecifiers?.throwsClause))
+        }
+      }
+    }
   }
 
   // --- the steps of a block
@@ -169,106 +152,94 @@ struct SwiftBodyReader {
     return step
   }
 
+  /// One step with what its head holds below its own level, and then the steps of its block.
+  private mutating func branch(
+    _ kind: String, _ node: some SyntaxProtocol, _ text: String, head: Syntax? = nil, body: CodeBlockItemListSyntax? = nil, owner: Int, graph: inout Graph
+  ) -> Step {
+    let step = made(kind, node, text, owner: owner)
+    if let head { step.children = inner(head, of: step, owner: owner, graph: &graph) }
+    if let body { step.children += steps(body, owner: owner, graph: &graph) }
+    return step
+  }
+
   /// The steps of one statement. A branch gives one step for each of its arms.
   private mutating func steps(of node: Syntax, owner: Int, graph: inout Graph) -> [Step] {
     if let s = node.as(ExpressionStmtSyntax.self) { return steps(of: Syntax(s.expression), owner: owner, graph: &graph) }
     if let s = node.as(LabeledStmtSyntax.self) { return steps(of: Syntax(s.statement), owner: owner, graph: &graph) }
-    if let s = node.as(GuardStmtSyntax.self) {
-      let step = made("guard", s, text(s.conditions), owner: owner)
-      step.children = inner(Syntax(s.conditions), of: step, owner: owner, graph: &graph) + steps(s.body.statements, owner: owner, graph: &graph)
-      return [step]
-    }
     if let s = node.as(IfExprSyntax.self) { return ifSteps(s, first: true, owner: owner, graph: &graph) }
-    if let s = node.as(SwitchExprSyntax.self) {
-      let step = made("switch", s, text(s.subject), owner: owner)
-      step.children = inner(Syntax(s.subject), of: step, owner: owner, graph: &graph)
-      for element in s.cases {
-        guard case .switchCase(let c) = element else { continue }
-        let isDefault = c.label.is(SwitchDefaultLabelSyntax.self)
-        let arm = made(isDefault ? "default" : "case", c, isDefault ? "" : text(c.label).replacingOccurrences(of: #"^case |:$"#, with: "", options: .regularExpression), owner: owner)
-        arm.children = steps(c.statements, owner: owner, graph: &graph)
-        step.children.append(arm)
-      }
-      return [step]
-    }
-    if let s = node.as(ForStmtSyntax.self) {
-      let step = made("for", s, text(s.pattern) + " in " + text(s.sequence) + (s.whereClause.map { " " + text($0) } ?? ""), owner: owner)
-      step.children = inner(Syntax(s.sequence), of: step, owner: owner, graph: &graph) + steps(s.body.statements, owner: owner, graph: &graph)
-      return [step]
+    if let s = node.as(DoStmtSyntax.self) { return doSteps(s, owner: owner, graph: &graph) }
+    if let s = node.as(IfConfigDeclSyntax.self) { return configSteps(s, owner: owner, graph: &graph) }
+    if let s = node.as(SwitchExprSyntax.self) { return [switchStep(s, owner: owner, graph: &graph)] }
+    if let s = node.as(RepeatStmtSyntax.self) { return [repeatStep(s, owner: owner, graph: &graph)] }
+    if let s = node.as(GuardStmtSyntax.self) {
+      return [branch("guard", s, text(s.conditions), head: Syntax(s.conditions), body: s.body.statements, owner: owner, graph: &graph)]
     }
     if let s = node.as(WhileStmtSyntax.self) {
-      let step = made("while", s, text(s.conditions), owner: owner)
-      step.children = inner(Syntax(s.conditions), of: step, owner: owner, graph: &graph) + steps(s.body.statements, owner: owner, graph: &graph)
-      return [step]
+      return [branch("while", s, text(s.conditions), head: Syntax(s.conditions), body: s.body.statements, owner: owner, graph: &graph)]
     }
-    if let s = node.as(RepeatStmtSyntax.self) {
-      let step = made("repeat", s, "while " + text(s.condition), owner: owner)
-      step.children = steps(s.body.statements, owner: owner, graph: &graph) + inner(Syntax(s.condition), of: step, owner: owner, graph: &graph)
-      return [step]
+    if let s = node.as(ForStmtSyntax.self) {
+      let header = text(s.pattern) + " in " + text(s.sequence) + (s.whereClause.map { " " + text($0) } ?? "")
+      return [branch("for", s, header, head: Syntax(s.sequence), body: s.body.statements, owner: owner, graph: &graph)]
     }
-    if let s = node.as(DoStmtSyntax.self) {
-      let step = made("do", s.body, "", owner: owner)
-      step.children = steps(s.body.statements, owner: owner, graph: &graph)
-      var out = [step]
-      for clause in s.catchClauses {
-        let arm = made("catch", clause, text(clause.catchItems), owner: owner)
-        arm.children = steps(clause.body.statements, owner: owner, graph: &graph)
-        out.append(arm)
-      }
-      return out
-    }
-    if let s = node.as(DeferStmtSyntax.self) {
-      let step = made("defer", s, "", owner: owner)
-      step.children = steps(s.body.statements, owner: owner, graph: &graph)
-      return [step]
-    }
+    if let s = node.as(DeferStmtSyntax.self) { return [branch("defer", s, "", body: s.body.statements, owner: owner, graph: &graph)] }
     if let s = node.as(ReturnStmtSyntax.self) {
-      let step = made("return", s, text(s.expression), owner: owner)
-      if let e = s.expression { step.children = inner(Syntax(e), of: step, owner: owner, graph: &graph) }
-      return [step]
+      return [branch("return", s, text(s.expression), head: s.expression.map { Syntax($0) }, owner: owner, graph: &graph)]
     }
-    if let s = node.as(ThrowStmtSyntax.self) {
-      let step = made("throw", s, text(s.expression), owner: owner)
-      step.children = inner(Syntax(s.expression), of: step, owner: owner, graph: &graph)
-      return [step]
-    }
-    if let s = node.as(FunctionDeclSyntax.self) {
-      // A function inside a function is no symbol of the index: its body is part of the outline that holds it.
-      let step = made("func", s, s.name.text, owner: owner)
-      if let body = s.body { step.children = steps(body.statements, owner: owner, graph: &graph) }
-      return [step]
-    }
-    if let s = node.as(IfConfigDeclSyntax.self) {
-      var out: [Step] = []
-      for clause in s.clauses {
-        guard case .statements(let list)? = clause.elements else { continue }
-        let step = made("#if", clause, clause.condition.map { text($0) } ?? "else", owner: owner)
-        step.children = steps(list, owner: owner, graph: &graph)
-        out.append(step)
-      }
-      return out
-    }
+    if let s = node.as(ThrowStmtSyntax.self) { return [branch("throw", s, text(s.expression), head: Syntax(s.expression), owner: owner, graph: &graph)] }
+    // A function inside a function is no symbol of the index: its body is part of the outline that holds it.
+    if let s = node.as(FunctionDeclSyntax.self) { return [branch("func", s, s.name.text, body: s.body?.statements, owner: owner, graph: &graph)] }
     // A type inside a function is read as a declaration of the file.
-    if node.is(StructDeclSyntax.self) || node.is(ClassDeclSyntax.self) || node.is(EnumDeclSyntax.self) || node.is(ActorDeclSyntax.self)
-      || node.is(ExtensionDeclSyntax.self) || node.is(ProtocolDeclSyntax.self) || node.is(TypeAliasDeclSyntax.self)
-    {
-      return []
+    if SwiftBodyReader.typeDeclarations.contains(where: { node.is($0) }) { return [] }
+    return [branch("stmt", node, text(node), head: node, owner: owner, graph: &graph)]
+  }
+
+  private static let typeDeclarations: [any SyntaxProtocol.Type] = [
+    StructDeclSyntax.self, ClassDeclSyntax.self, EnumDeclSyntax.self, ActorDeclSyntax.self, ExtensionDeclSyntax.self, ProtocolDeclSyntax.self,
+    TypeAliasDeclSyntax.self,
+  ]
+
+  private mutating func switchStep(_ s: SwitchExprSyntax, owner: Int, graph: inout Graph) -> Step {
+    let step = branch("switch", s, text(s.subject), head: Syntax(s.subject), owner: owner, graph: &graph)
+    for element in s.cases {
+      guard case .switchCase(let c) = element else { continue }
+      let isDefault = c.label.is(SwitchDefaultLabelSyntax.self)
+      let label = isDefault ? "" : text(c.label).replacingOccurrences(of: #"^case |:$"#, with: "", options: .regularExpression)
+      step.children.append(branch(isDefault ? "default" : "case", c, label, body: c.statements, owner: owner, graph: &graph))
     }
-    let step = made("stmt", node, text(node), owner: owner)
-    step.children = inner(node, of: step, owner: owner, graph: &graph)
-    return [step]
+    return step
+  }
+
+  /// The condition of a `repeat` runs after its block, so what it holds comes last.
+  private mutating func repeatStep(_ s: RepeatStmtSyntax, owner: Int, graph: inout Graph) -> Step {
+    let step = branch("repeat", s, "while " + text(s.condition), body: s.body.statements, owner: owner, graph: &graph)
+    step.children += inner(Syntax(s.condition), of: step, owner: owner, graph: &graph)
+    return step
+  }
+
+  private mutating func doSteps(_ s: DoStmtSyntax, owner: Int, graph: inout Graph) -> [Step] {
+    var out = [branch("do", s.body, "", body: s.body.statements, owner: owner, graph: &graph)]
+    for clause in s.catchClauses {
+      out.append(branch("catch", clause, text(clause.catchItems), body: clause.body.statements, owner: owner, graph: &graph))
+    }
+    return out
+  }
+
+  private mutating func configSteps(_ s: IfConfigDeclSyntax, owner: Int, graph: inout Graph) -> [Step] {
+    var out: [Step] = []
+    for clause in s.clauses {
+      guard case .statements(let list)? = clause.elements else { continue }
+      out.append(branch("#if", clause, clause.condition.map { text($0) } ?? "else", body: list, owner: owner, graph: &graph))
+    }
+    return out
   }
 
   private mutating func ifSteps(_ s: IfExprSyntax, first: Bool, owner: Int, graph: inout Graph) -> [Step] {
-    let step = made(first ? "if" : "else if", s, text(s.conditions), owner: owner)
-    step.children = inner(Syntax(s.conditions), of: step, owner: owner, graph: &graph) + steps(s.body.statements, owner: owner, graph: &graph)
+    let step = branch(first ? "if" : "else if", s, text(s.conditions), head: Syntax(s.conditions), body: s.body.statements, owner: owner, graph: &graph)
     switch s.elseBody {
     case .ifExpr(let next)?:
       return [step] + ifSteps(next, first: false, owner: owner, graph: &graph)
     case .codeBlock(let block)?:
-      let arm = made("else", block, "", owner: owner)
-      arm.children = steps(block.statements, owner: owner, graph: &graph)
-      return [step, arm]
+      return [step, branch("else", block, "", body: block.statements, owner: owner, graph: &graph)]
     case nil:
       return [step]
     }
@@ -342,7 +313,7 @@ struct SwiftBodyReader {
       guard e.is(StringLiteralExprSyntax.self) || e.is(IntegerLiteralExprSyntax.self) || (e.as(MemberAccessExprSyntax.self)?.base == nil && e.is(MemberAccessExprSyntax.self)) else {
         return nil
       }
-      return shown(e, limit: 40)
+      return Step.firstLine(of: e.trimmedDescription, limit: 40)
     }
     if let closure { literals.append(closure + ":") }
     return name + "(" + literals.joined(separator: ", ") + ")"
@@ -351,11 +322,10 @@ struct SwiftBodyReader {
 
 /// The hash of the tokens of a node, with no comment and no white space. The statements of a block inside are left out, because they are steps of their own.
 private final class TokenText: SyntaxVisitor {
-  var hash: UInt32 = 2_166_136_261
+  var hash = TokenHash()
   override func visit(_ node: CodeBlockItemListSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
   override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {
-    for byte in token.text.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
-    hash = (hash ^ 32) &* 16_777_619
+    hash.add(token.text.utf8)
     return .skipChildren
   }
 }

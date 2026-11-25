@@ -57,33 +57,39 @@ struct CBodyReader {
     var depth = 0
     while j < tokens.count {
       let t = tokens[j]
-      if t.kind == .punct, t.text == "(" || t.text == "[" {
+      if t.isPunct("(") || t.isPunct("[") {
         depth += 1
-      } else if t.kind == .punct, t.text == ")" || t.text == "]" {
+      } else if t.isPunct(")") || t.isPunct("]") {
         depth -= 1
-      } else if t.kind == .punct, depth == 0 {
-        switch t.text {
-        case "{": return (j, initializers)
-        case ";", "=", "}": return nil
-        case ":":
-          // The initializers of a constructor, each a name and one group, or one part of an Objective-C selector. An `#if` can stand between two.
-          repeat {
-            j += 1
-            while j < tokens.count, tokens[j].kind == .directive { j += 1 }
-            let from = j
-            while j < tokens.count, !(tokens[j].isPunct("(") || tokens[j].isPunct("{") || tokens[j].isPunct(";")) { j += 1 }
-            guard let close = closing(j, in: tokens) else { return nil }
-            if tokens[from].kind == .word { initializers.append(from..<(close + 1)) }
-            j = close + 1
-            while j < tokens.count, tokens[j].kind == .directive { j += 1 }
-          } while j < tokens.count && tokens[j].isPunct(",")
-          continue
-        default: break
-        }
+      } else if depth == 0, t.isPunct("{") {
+        return (j, initializers)
+      } else if depth == 0, t.isPunct(";") || t.isPunct("=") || t.isPunct("}") {
+        return nil
+      } else if depth == 0, t.isPunct(":") {
+        guard let list = groups(after: j, in: tokens) else { return nil }
+        initializers += list.named
+        j = list.next
+        continue
       }
       j += 1
     }
     return nil
+  }
+
+  /// What follows a `:` after the parameters: the initializers of a constructor, each a name and one group, or one part of an Objective-C selector.
+  /// An `#if` can stand between two. `next` is the token after the last group.
+  private static func groups(after colon: Int, in tokens: [CToken]) -> (named: [Range<Int>], next: Int)? {
+    func pastDirectives(_ j: Int) -> Int { tokens[j...].firstIndex { $0.kind != .directive } ?? tokens.count }
+    var named: [Range<Int>] = []
+    var j = colon
+    repeat {
+      let from = pastDirectives(j + 1)
+      let open = tokens[from...].firstIndex { $0.isPunct("(") || $0.isPunct("{") || $0.isPunct(";") } ?? tokens.count
+      guard let close = closing(open, in: tokens) else { return nil }
+      if from < tokens.count, tokens[from].kind == .word { named.append(from..<(close + 1)) }
+      j = pastDirectives(close + 1)
+    } while j < tokens.count && tokens[j].isPunct(",")
+    return (named, j)
   }
 
   private static func closing(_ open: Int, in tokens: [CToken]) -> Int? {
@@ -110,33 +116,13 @@ struct CBodyReader {
   private var consumed: Int64 { Extents.key(tokens[i - 1].endLine, tokens[i - 1].endColumn) }
 
   /// The first line of the tokens of a range, as the page shows it, and the hash of them all when they have more than that.
-  private func text(_ range: Range<Int>, limit: Int = 110) -> (shown: String, hash: UInt32) {
-    guard !range.isEmpty else { return ("", 0) }
-    var shown = ""
-    var space = false
-    var cut = tokens[range.lowerBound].line != tokens[range.upperBound - 1].endLine
-    for c in String(decoding: bytes[tokens[range.lowerBound].start..<tokens[range.upperBound - 1].end], as: UTF8.self) {
-      if c == "\n" || c == "\r\n" { break }
-      if c == " " || c == "\t" {
-        space = true
-        continue
-      }
-      if space, !shown.isEmpty { shown.append(" ") }
-      space = false
-      shown.append(c)
-      if shown.count >= limit {
-        shown.append("…")
-        cut = true
-        break
-      }
-    }
-    guard cut else { return (shown, 0) }
-    var hash: UInt32 = 2_166_136_261
-    for t in tokens[range] where t.kind != .directive {
-      for byte in bytes[t.start..<t.end] { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
-      hash = (hash ^ 32) &* 16_777_619
-    }
-    return (shown, hash)
+  private func text(_ range: Range<Int>) -> (shown: String, hash: UInt32) {
+    guard let first = tokens[range].first, let last = tokens[range].last else { return ("", 0) }
+    let shown = Step.firstLine(of: String(decoding: bytes[first.start..<last.end], as: UTF8.self))
+    guard first.line != last.endLine || shown.hasSuffix("…") else { return (shown, 0) }
+    var hash = TokenHash()
+    for t in tokens[range] where t.kind != .directive { hash.add(bytes[t.start..<t.end]) }
+    return (shown, hash.value)
   }
 
   private func step(_ kind: String, at first: CToken, _ range: Range<Int>, prefix: String = "") -> Step {
@@ -203,86 +189,101 @@ struct CBodyReader {
   private mutating func statement() -> [Step] {
     let first = token
     if first.opensArm { return conditional() }
-    if first.kind == .punct {
-      switch first.text {
-      case "{":
-        i += 1
-        let inner = list(inArm: false)
-        if more { i += 1 }
-        return inner
-      case ";":
-        i += 1
-        return []
-      case "@" where i + 1 < tokens.count && tokens[i + 1].kind == .word:
-        i += 1
-        return statement()
-      default: break
-      }
-    }
-    if first.kind == .word {
-      if next(is: ":"), first.text != "default" {
-        i += 2
-        return body()
-      }
-      switch first.text {
-      case "if", "while", "for", "switch", "catch":
-        i += 1
-        while more, token.kind == .word { i += 1 }
-        return branch(first.text, at: first, parens())
-      case "else":
-        i += 1
-        if more, token.isWord("if") {
-          i += 1
-          while more, token.kind == .word { i += 1 }
-          return branch("else if", at: first, parens())
-        }
-        return branch("else", at: first, i..<i)
-      case "try":
-        i += 1
-        return branch("do", at: first, i..<i)
-      case "do":
-        i += 1
-        let children = body()
-        var header = i..<i
-        if more, token.isWord("while") {
-          i += 1
-          header = parens()
-          if more, token.isPunct(";") { i += 1 }
-        }
-        let made = step("repeat", at: first, header, prefix: "while ")
-        made.children = children
-        return [close(made, from: first)]
-      case "case":
-        i += 1
-        let from = i
-        var questions = 0
-        while more, !token.isPunct("}"), !token.isPunct(";"), !(token.isPunct(":") && questions == 0) {
-          if token.isPunct("?") { questions += 1 } else if token.isPunct(":") { questions -= 1 }
-          i += 1
-        }
-        let made = step("case", at: first, from..<i)
-        if more, token.isPunct(":") { i += 1 }
-        return [made]
-      case "default" where next(is: ":"):
-        i += 2
-        return [Step("default", first.line, "")]
-      case "return", "throw":
-        i += 1
-        return simple(first.text, at: first)
-      default:
-        // A macro that takes a block, as `EACH(x) { … }` or `GUARDED { … }`.
-        if next(is: "{"), !CBodyReader.typeWords.contains(first.text) {
-          i += 1
-          return branch("stmt", at: first, (i - 1)..<i)
-        }
-        if next(is: "("), let end = CBodyReader.closing(i + 1, in: tokens), end + 1 < tokens.count, tokens[end + 1].isPunct("{") {
-          let from = i
-          i = end + 1
-          return branch("stmt", at: first, from..<i)
-        }
-      }
-    }
+    if first.kind == .punct, let steps = punctuation(first) { return steps }
+    if first.kind == .word, let steps = keyword(first) ?? blockMacro(first) { return steps }
     return simple("stmt", at: first)
+  }
+
+  private mutating func punctuation(_ first: CToken) -> [Step]? {
+    switch first.text {
+    case "{":
+      i += 1
+      let inner = list(inArm: false)
+      if more { i += 1 }
+      return inner
+    case ";":
+      i += 1
+      return []
+    case "@" where i + 1 < tokens.count && tokens[i + 1].kind == .word:
+      i += 1
+      return statement()
+    default:
+      return nil
+    }
+  }
+
+  private mutating func keyword(_ first: CToken) -> [Step]? {
+    if next(is: ":"), first.text != "default" {
+      i += 2
+      return body()
+    }
+    i += 1
+    switch first.text {
+    case "if", "while", "for", "switch", "catch":
+      return branch(first.text, at: first, condition())
+    case "else":
+      guard more, token.isWord("if") else { return branch("else", at: first, i..<i) }
+      i += 1
+      return branch("else if", at: first, condition())
+    case "try":
+      return branch("do", at: first, i..<i)
+    case "do":
+      return [doWhile(first)]
+    case "case":
+      return [caseLabel(first)]
+    case "default" where more && token.isPunct(":"):
+      i += 1
+      return [Step("default", first.line, "")]
+    case "return", "throw":
+      return simple(first.text, at: first)
+    default:
+      i -= 1
+      return nil
+    }
+  }
+
+  /// The condition in parentheses, past a word before it as `constexpr`.
+  private mutating func condition() -> Range<Int> {
+    while more, token.kind == .word { i += 1 }
+    return parens()
+  }
+
+  private mutating func doWhile(_ first: CToken) -> Step {
+    let children = body()
+    var header = i..<i
+    if more, token.isWord("while") {
+      i += 1
+      header = parens()
+      if more, token.isPunct(";") { i += 1 }
+    }
+    let made = step("repeat", at: first, header, prefix: "while ")
+    made.children = children
+    return close(made, from: first)
+  }
+
+  /// The value of a `case` to its `:`. The `:` of a `?:` inside it is not the end.
+  private mutating func caseLabel(_ first: CToken) -> Step {
+    let from = i
+    var questions = 0
+    while more, !token.isPunct("}"), !token.isPunct(";"), !(token.isPunct(":") && questions == 0) {
+      if token.isPunct("?") { questions += 1 } else if token.isPunct(":") { questions -= 1 }
+      i += 1
+    }
+    let made = step("case", at: first, from..<i)
+    if more, token.isPunct(":") { i += 1 }
+    return made
+  }
+
+  /// A macro that takes a block, as `EACH(x) { … }` or `GUARDED { … }`.
+  private mutating func blockMacro(_ first: CToken) -> [Step]? {
+    if next(is: "{"), !CBodyReader.typeWords.contains(first.text) {
+      i += 1
+      return branch("stmt", at: first, (i - 1)..<i)
+    }
+    guard next(is: "("), let end = CBodyReader.closing(i + 1, in: tokens), end + 1 < tokens.count, tokens[end + 1].isPunct("{") else { return nil }
+    let from = i
+    i = end + 1
+    return branch("stmt", at: first, from..<i)
   }
 
   /// One statement to its `;`. It also ends before a `}` that it did not open, and before the end of the arm of an `#if`.
