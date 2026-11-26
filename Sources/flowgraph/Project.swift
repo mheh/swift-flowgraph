@@ -101,7 +101,8 @@ func readGraph(_ options: Options, checkoutDirectories: [String], targets: Set<S
       opened = (store, raw, plan)
       break
     }
-    log("index store with no symbol of these sources: \(store)")
+    let example = raw.sourceFiles().first.map { ". It names a file as \($0), and the project has \(files.first ?? "none")" } ?? ""
+    log("index store with no symbol of these sources: \(store)\(example)")
   }
   guard let (store, raw, plan) = opened else {
     throw Failure("no index has a symbol for the \(files.count) source files under \(scanned.joined(separator: ", ")). Build the project first (swift build), or give --index-store.")

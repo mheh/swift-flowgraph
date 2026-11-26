@@ -1,6 +1,15 @@
 import Foundation
 import IndexStore
 
+/// A path as the index wrote it, with the slashes that the tool uses.
+func indexPath(_ path: String) -> String {
+  #if os(Windows)
+  return path.replacingOccurrences(of: "\\", with: "/")
+  #else
+  return path
+  #endif
+}
+
 struct Sym {
   var usr: String
   var name: String
@@ -113,10 +122,19 @@ final class RawStore {
 
     init(_ files: Set<String>) {
       for file in files {
-        known[file] = file
+        known[Self.key(file)] = file
         // The index names a file by its real path, and the list of the files can name it through a link (/tmp on macOS).
-        if let real = Self.real(file) { known[real] = file }
+        if let real = Self.real(file) { known[Self.key(real)] = file }
       }
+    }
+
+    /// Windows names one file with either slash and with letters of either case.
+    private static func key(_ path: String) -> String {
+      #if os(Windows)
+      return indexPath(path).lowercased()
+      #else
+      return path
+      #endif
     }
 
     private static func real(_ path: String) -> String? {
@@ -130,11 +148,12 @@ final class RawStore {
     }
 
     /// The project file that the index means by a path, or nil for a file of another project.
-    mutating func file(_ path: String) -> String? {
+    mutating func file(_ named: String) -> String? {
+      let path = Self.key(named)
       if let file = known[path] { return file }
       // The index also names a header as the include line reached it, with `..` in the path.
       guard path.contains("/../") || path.contains("/./") else { return nil }
-      let plain = URL(fileURLWithPath: path).standardized.path
+      let plain = Self.key(URL(fileURLWithPath: path).standardized.path)
       known[path] = known[plain]
       return known[plain]
     }
@@ -146,7 +165,7 @@ final class RawStore {
     store.unitNames(sorted: true).forEach { name in
       guard let unit = try? store.unit(named: name.string) else { return .continue }
       unit.dependencies.forEach { dep in
-        let url = URL(fileURLWithPath: dep.filePath.string)
+        let url = URL(fileURLWithPath: indexPath(dep.filePath.string))
         if dep.kind == .record, !dep.isSystem, sourceExtensions.contains(url.pathExtension) { files.insert(url.standardized.path) }
         return .continue
       }
@@ -222,7 +241,7 @@ final class RawStore {
       let mainPath = unit.hasMainFile ? unit.mainFile.string : ""
       let main = paths.file(mainPath) ?? mainPath
       let unitModule = unit.moduleName.string
-      let context = unitModule.isEmpty ? binary(unit.outputFile.string) : unitModule
+      let context = unitModule.isEmpty ? binary(indexPath(unit.outputFile.string)) : unitModule
       if unitModule.isEmpty { found.binaries.insert(context) }
       let date = unit.modificationDate
       unit.dependencies.forEach { dep in
