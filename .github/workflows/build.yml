@@ -1,10 +1,12 @@
 name: build
 
 # One build of flowgraph for each platform. The image and the release both take the files of these builds, and compile nothing.
-#   flowgraph-x86_64-linux.zip   built in the Swift image, so it needs the Swift toolchain of that version
-#   flowgraph-arm64-macos.zip    built with the Xcode of the runner
+#   flowgraph-x86_64-linux.zip     built in the Swift image, so it needs the Swift toolchain of that version
+#   flowgraph-arm64-macos.zip      built with the Xcode of the runner
+#   flowgraph-x86_64-windows.zip   a trial: the run goes on when this build fails, and the release then has no zip of it
+#   exporter.wasm                  the exporter that the page runs, for `flowgraph site --exporter`
 # Each zip holds the binary and its resources folder, which must stay beside it.
-# The zip names carry no version, so the rolling `latest` release keeps the same download links.
+# The names carry no version, so the rolling `latest` release keeps the same download links.
 
 on:
   push:
@@ -16,6 +18,8 @@ permissions:
 env:
   SWIFT_VERSION: '6.4'
   SWIFT_IMAGE: swift:6.4-noble
+  SWIFT_WINDOWS_BRANCH: swift-6.4.1-release
+  SWIFT_WINDOWS_TAG: 6.4.1-RELEASE
   IMAGE: mhehmsoth/swift-flowgraph
 
 jobs:
@@ -23,21 +27,37 @@ jobs:
     name: flowgraph ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    continue-on-error: ${{ matrix.trial }}
     permissions:
       contents: read
       actions: write # The job deletes the older entries of its cache.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: x86_64-linux
             runner: ubuntu-24.04
+            trial: false
           - platform: arm64-macos
             runner: macos-latest
+            trial: false
+          - platform: x86_64-windows
+            runner: windows-latest
+            trial: true
     env:
       CACHE_FAMILY: spm-${{ matrix.platform }}-swift-6.4-
       ZIP_NAME: flowgraph-${{ matrix.platform }}.zip
     steps:
+      - name: Install the Windows Swift toolchain
+        if: ${{ runner.os == 'Windows' }}
+        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: ${{ env.SWIFT_WINDOWS_BRANCH }}
+          swift-build: ${{ env.SWIFT_WINDOWS_TAG }}
+
       - name: Check out the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -55,15 +75,15 @@ jobs:
           docker run --rm -v "$PWD:/workspace" -w /workspace "$SWIFT_IMAGE" Scripts/build.sh dist
           sudo chown -R "$(id -u):$(id -g)" .build dist
 
-      - name: Build with Xcode
-        if: ${{ runner.os == 'macOS' }}
+      - name: Build with the toolchain of the runner
+        if: ${{ runner.os != 'Linux' }}
         run: |
           swift --version
           Scripts/build.sh dist
 
       # The Linux build is tested in the image job, with the toolchain that it needs.
       - name: Test on the fixture package
-        if: ${{ runner.os == 'macOS' }}
+        if: ${{ runner.os != 'Linux' }}
         run: |
           swift build --package-path Tests/fixture
           dist/flowgraph list entries Tests/fixture --sources Sources/App | tee entries.txt
@@ -88,13 +108,49 @@ jobs:
             --jq '.[] | select(.key != env.KEEP) | .id' | while read -r id; do gh cache delete "$id"; done
 
       - name: Package the zip
-        run: cd dist && zip -qry "../$ZIP_NAME" . && ls -l "../$ZIP_NAME"
+        run: |
+          cd dist
+          if command -v zip > /dev/null; then zip -qry "../$ZIP_NAME" .; else 7z a -tzip "../$ZIP_NAME" . > /dev/null; fi
+          ls -l "../$ZIP_NAME"
 
       - name: Upload the artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+  exporter:
+    name: exporter.wasm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The Swift image has clang and wasm-ld. The build also gets the Swift SDK for WebAssembly and the index reader of LLVM.
+      - name: Build in the Swift image
+        run: |
+          mkdir dist
+          docker run --rm -v "$PWD:/workspace" -w /workspace "$SWIFT_IMAGE" sh -euc '
+            apt-get update -yq > /dev/null && apt-get install -y cmake make python3 curl > /dev/null
+            swift package resolve
+            Wasm/fetch.sh fetched
+            Wasm/build.sh /usr/bin fetched/sdk/*.artifactbundle fetched/llvm-project fetched/work dist/exporter.wasm
+            Tests/fixture-c/build.sh Tests/fixture-c/src fetched/cbuild'
+          sudo chown -R "$(id -u):$(id -g)" dist fetched .build
+
+      - name: Test on the index of the C fixture
+        run: |
+          node --version
+          node Tests/wasm/run.mjs dist/exporter.wasm fetched/cbuild/idx snapshot.json
+          grep -q 'G_Command' snapshot.json
+
+      - name: Upload the artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exporter.wasm
+          path: dist/exporter.wasm
           if-no-files-found: error
 
   image:
@@ -133,11 +189,11 @@ jobs:
   # The release waits for the image job, because that job is the test of the Linux build.
   release:
     name: Update the rolling release
-    needs: [build, image]
+    needs: [build, image, exporter]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
-      contents: write # The job attaches the zips to the rolling release.
+      contents: write # The job attaches the files to the rolling release.
     steps:
       - name: Download every artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -155,5 +211,8 @@ jobs:
             Automated build of `master` at ${{ github.sha }}.
             Each zip holds `flowgraph` and its resources folder. Keep the two in one directory.
             The Linux build needs the Swift ${{ env.SWIFT_VERSION }} toolchain, and the macOS build needs Xcode.
-          files: dist/*.zip
+            `exporter.wasm` is the exporter that the page runs: give it to `flowgraph site --exporter`.
+          files: |
+            dist/*.zip
+            dist/exporter.wasm
           fail_on_unmatched_files: true

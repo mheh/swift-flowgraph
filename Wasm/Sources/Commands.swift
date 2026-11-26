@@ -2,3 +2,5 @@
 func run(_ tool: String, _ arguments: [String]) -> String? { nil }
 
 func runSwift(_ arguments: [String]) -> String? { nil }
+
+func find(tool: String) -> String? { nil }

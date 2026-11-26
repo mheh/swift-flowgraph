@@ -58,7 +58,7 @@ struct Options {
       --from-index           Take the source files from the index and not from the disk, for an index that another computer built.
                              The project directory gives the text of the lines, when it holds the sources.
       --index-store <path>   Index store. Default: found under .build or Xcode DerivedData.
-      --libindexstore <path> libIndexStore.dylib or .so. Default: from the toolchain of the swift in use.
+      --libindexstore <path> libIndexStore.dylib, .so, or .dll. Default: from the toolchain of the swift in use.
     """
 
   init(_ arguments: [String]) throws {

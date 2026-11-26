@@ -3,8 +3,7 @@
 ARG SWIFT_IMAGE=swift:6.4-noble
 FROM ${SWIFT_IMAGE}
 # The page and its scripts are in the resources folder, which the tool finds beside its binary.
-COPY flowgraph /usr/local/bin/flowgraph
-COPY flowgraph_flowgraph.resources /usr/local/bin/flowgraph_flowgraph.resources
+COPY . /usr/local/bin/
 # A project that CI checked out belongs to another user than the one of the container.
 RUN git config --system --add safe.directory '*'
 WORKDIR /work

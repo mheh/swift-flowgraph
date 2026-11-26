@@ -115,11 +115,18 @@ final class RawStore {
       for file in files {
         known[file] = file
         // The index names a file by its real path, and the list of the files can name it through a link (/tmp on macOS).
-        if let real = realpath(file, nil) {
-          known[String(cString: real)] = file
-          free(real)
-        }
+        if let real = Self.real(file) { known[real] = file }
       }
+    }
+
+    private static func real(_ path: String) -> String? {
+      #if os(Windows)
+      return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+      #else
+      guard let real = realpath(path, nil) else { return nil }
+      defer { free(real) }
+      return String(cString: real)
+      #endif
     }
 
     /// The project file that the index means by a path, or nil for a file of another project.

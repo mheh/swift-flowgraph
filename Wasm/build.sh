@@ -5,7 +5,9 @@
 #   sdk-bundle     the Swift SDK for WebAssembly of the same release (*_wasm.artifactbundle)
 #   llvm-project   a checkout of swiftlang/llvm-project of the same release
 set -eu
-tools="$1"; bundle="$2"; llvm="$3"; work="$4"; out="$5"
+# CMake tests the compiler from another directory, so each path is made a full one.
+full() { case "$1" in /*) echo "$1" ;; *) echo "$PWD/$1" ;; esac; }
+tools="$(full "$1")"; bundle="$(full "$2")"; llvm="$(full "$3")"; work="$(full "$4")"; out="$(full "$5")"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$here/.."
 sdk="$(basename "$bundle" .artifactbundle)"

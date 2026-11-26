@@ -4,12 +4,12 @@ func log(_ text: String) {
   FileHandle.standardError.write(Data((text + "\n").utf8))
 }
 
+/// The index reader of the toolchain of the swift in use. Windows keeps it beside the tools.
 func findLibIndexStore() -> String? {
-  guard let swift = run("/usr/bin/xcrun", ["--find", "swift"]) ?? run("/usr/bin/env", ["which", "swift"]) else { return nil }
-  let lib = URL(fileURLWithPath: swift).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
-    .appendingPathComponent("lib")
-  for name in ["libIndexStore.dylib", "libIndexStore.so"] {
-    let path = lib.appendingPathComponent(name).path.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard let swift = run("/usr/bin/xcrun", ["--find", "swift"]) ?? find(tool: "swift") else { return nil }
+  let usr = URL(fileURLWithPath: swift).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+  for name in ["lib/libIndexStore.dylib", "lib/libIndexStore.so", "bin/libIndexStore.dll"] {
+    let path = usr.appendingPathComponent(name).path
     if FileManager.default.fileExists(atPath: path) { return path }
   }
   return nil

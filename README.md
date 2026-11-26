@@ -91,12 +91,13 @@ A hosted page can make the snapshot of a C or C++ project itself, so a person wh
 With the sources in the picked directory, the snapshot is the one that the command makes with `--from-index`. With the index alone, the snapshot has no bodies, and an exported function is no entry point.
 A Swift project needs the command: the page has no Swift parser, so it reads no Swift bodies, and it does not know the products of a package.
 
-The page offers this when its folder has `exporter.wasm`, which is the exporter as a WebAssembly program of about 54 MB (15 MB with Brotli):
+The page offers this when its folder has `exporter.wasm`, which is the exporter as a WebAssembly program of about 54 MB (15 MB with Brotli). The release `latest` holds it, and so does a build of your own:
 
-    Wasm/build.sh <toolchain-bin> <sdk-bundle> <llvm-project> <work-dir> exporter.wasm
+    Wasm/fetch.sh fetched
+    Wasm/build.sh <toolchain-bin> fetched/sdk/*.artifactbundle fetched/llvm-project <work-dir> exporter.wasm
     flowgraph site --exporter exporter.wasm --out site
 
-The script needs a swift.org toolchain, the Swift SDK for WebAssembly of the same release, a checkout of `swiftlang/llvm-project` of that release, and `cmake`.
+`fetch.sh` gets the Swift SDK for WebAssembly and the part of `swiftlang/llvm-project` that holds the index reader. `build.sh` also needs the `usr/bin` of a swift.org toolchain of the same release, `cmake`, `make`, and `python3`.
 It compiles the index reader of clang and the part of LLVM's support library that the reader needs, and links them into the exporter. The page opened from one file has no exporter.
 
 ## The page
@@ -226,6 +227,8 @@ The release `latest` of this repository holds one zip for each platform, from th
 - `flowgraph-x86_64-linux.zip`, which needs the Swift 6.4 toolchain for Linux.
 
 A zip holds `flowgraph` and its resources folder. Keep the two in one directory, because the tool finds the page beside its binary.
+
+The release also holds `exporter.wasm`, the exporter that the page runs. `flowgraph site --exporter exporter.wasm` puts it in the site, and the page then makes a snapshot from the index store of a C or C++ build.
 
 ## The image
 

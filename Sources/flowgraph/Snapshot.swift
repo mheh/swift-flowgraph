@@ -33,7 +33,7 @@ func depth(_ text: String) throws -> Int {
 
 /// Where the snapshot came from: the name of the project, and the commit when the project is a git repository.
 func projectInfo(_ options: Options, root: String, indexed: Date?, stale: Int, unindexed: Int) -> [String: Any] {
-  func git(_ arguments: String...) -> String? { run("/usr/bin/env", ["git"] + ["-C", options.project] + arguments) }
+  func git(_ arguments: String...) -> String? { run("git", ["-C", options.project] + arguments) }
   var info: [String: Any] = [
     "name": options.title ?? URL(fileURLWithPath: root).lastPathComponent,
     "created": ISO8601DateFormatter().string(from: Date()),
